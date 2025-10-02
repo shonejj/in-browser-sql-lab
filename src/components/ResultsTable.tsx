@@ -1,0 +1,118 @@
+import { useMemo, useState } from 'react';
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  flexRender,
+  SortingState,
+  ColumnDef,
+} from '@tanstack/react-table';
+import { ArrowUpDown, Download } from 'lucide-react';
+import { Button } from './ui/button';
+
+interface ResultsTableProps {
+  data: any[];
+  onColumnClick?: (columnName: string) => void;
+}
+
+export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  const columns = useMemo<ColumnDef<any>[]>(() => {
+    if (data.length === 0) return [];
+
+    return Object.keys(data[0]).map((key) => ({
+      accessorKey: key,
+      header: ({ column }) => (
+        <button
+          onClick={() => {
+            column.toggleSorting();
+            onColumnClick?.(key);
+          }}
+          className="flex items-center gap-1.5 font-medium hover:text-foreground group"
+        >
+          {key}
+          <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+        </button>
+      ),
+      cell: ({ getValue }) => {
+        const value = getValue();
+        if (value === null || value === undefined) return <span className="text-muted-foreground italic">null</span>;
+        return <span>{String(value)}</span>;
+      },
+    }));
+  }, [data, onColumnClick]);
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  if (data.length === 0) {
+    return (
+      <div className="border border-border rounded-lg p-8 text-center text-muted-foreground">
+        No results to display. Run a query to see results.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-border rounded-lg overflow-hidden bg-card">
+      {/* Table Header */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 border-b border-border sticky top-0">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.slice(0, 100).map((row, idx) => (
+              <tr
+                key={row.id}
+                className={`border-b border-border last:border-0 hover:bg-muted/20 ${
+                  idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'
+                }`}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className="px-4 py-2 text-xs whitespace-nowrap">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-muted/20">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Filter</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-xs font-medium">
+            {data.length.toLocaleString()} Rows
+          </span>
+          <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
+            <Download className="w-3 h-3" />
+            <span className="text-xs">Export</span>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
