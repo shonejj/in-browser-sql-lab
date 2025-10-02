@@ -3,9 +3,13 @@ import { DatabaseSidebar } from '@/components/DatabaseSidebar';
 import { QueryEditor } from '@/components/QueryEditor';
 import { ResultsTable } from '@/components/ResultsTable';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
-import { initDuckDB, executeQuery } from '@/lib/duckdb';
+import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
+import { initDuckDB, executeQuery, getConnection } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
+import { History, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 const Index = () => {
   const [query, setQuery] = useState(initialQuery);
@@ -13,6 +17,9 @@ const Index = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string>();
+  const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
+  const [tables, setTables] = useState<Array<{ name: string; rowCount: number; columns: any[] }>>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     initializeDatabase();
@@ -55,6 +62,9 @@ const Index = () => {
       toast.success('Database initialized with 10k sample records', { id: 'init' });
       setIsInitialized(true);
       
+      // Update tables list
+      await refreshTables();
+      
       // Auto-execute initial query
       handleExecuteQuery();
     } catch (error) {
@@ -70,9 +80,23 @@ const Index = () => {
     }
 
     setIsExecuting(true);
+    const startTime = performance.now();
+    
     try {
       const result = await executeQuery(query);
+      const executionTime = Math.round(performance.now() - startTime);
+      
       setResults(result);
+      
+      // Add to history
+      setQueryHistory(prev => [...prev, {
+        id: Date.now().toString(),
+        query,
+        timestamp: new Date(),
+        success: true,
+        rowCount: result.length,
+        executionTime,
+      }]);
       
       // Auto-select first column with categorical data
       if (result.length > 0) {
@@ -84,44 +108,146 @@ const Index = () => {
         setSelectedColumn(categoricalCol || columns[0]);
       }
       
-      toast.success(`Query executed: ${result.length} rows returned`);
+      toast.success(`Query executed: ${result.length} rows in ${executionTime}ms`);
     } catch (error: any) {
       console.error('Query error:', error);
+      
+      // Add failed query to history
+      setQueryHistory(prev => [...prev, {
+        id: Date.now().toString(),
+        query,
+        timestamp: new Date(),
+        success: false,
+      }]);
+      
       toast.error(error.message || 'Query execution failed');
     } finally {
       setIsExecuting(false);
     }
   }
 
-  const tables = [
-    {
-      name: 'trains',
-      rowCount: 10000,
-      columns: [
-        { name: 'service_id', type: 'INTEGER', uniqueCount: 2000 },
-        { name: 'date', type: 'DATE' },
-        { name: 'type', type: 'VARCHAR', uniqueCount: 17 },
-        { name: 'train_number', type: 'INTEGER' },
-        { name: 'station_code', type: 'VARCHAR', uniqueCount: 573 },
-        { name: 'station_name', type: 'VARCHAR', uniqueCount: 657 },
-        { name: 'departure_time', type: 'TIMESTAMP', completeness: 11 },
-        { name: 'arrival_time', type: 'TIMESTAMP', completeness: 11 },
-      ],
-    },
-  ];
+  async function refreshTables() {
+    try {
+      const conn = await getConnection();
+      const tablesResult = await conn.query("SELECT name FROM sqlite_master WHERE type='table'");
+      const tablesList = tablesResult.toArray();
+      
+      const tablesData = [];
+      
+      for (const tableRow of tablesList) {
+        const tableName = tableRow.name;
+        
+        // Get row count
+        const countResult = await conn.query(`SELECT COUNT(*) as count FROM ${tableName}`);
+        const rowCount = countResult.toArray()[0].count;
+        
+        // Get columns
+        const columnsResult = await conn.query(`PRAGMA table_info('${tableName}')`);
+        const columns = columnsResult.toArray().map((col: any) => ({
+          name: col.name,
+          type: col.type,
+        }));
+        
+        tablesData.push({
+          name: tableName,
+          rowCount,
+          columns,
+        });
+      }
+      
+      setTables(tablesData);
+    } catch (error) {
+      console.error('Failed to refresh tables:', error);
+    }
+  }
+
+  async function handleImportCSV(tableName: string, data: any[], columns: string[]) {
+    try {
+      const conn = await getConnection();
+      
+      // Create column definitions
+      const columnDefs = columns.map(col => {
+        // Infer type from first non-null value
+        const firstValue = data.find(row => row[col] !== null && row[col] !== undefined)?.[col];
+        let type = 'VARCHAR';
+        
+        if (typeof firstValue === 'number') {
+          type = Number.isInteger(firstValue) ? 'INTEGER' : 'DOUBLE';
+        } else if (firstValue instanceof Date) {
+          type = 'TIMESTAMP';
+        }
+        
+        return `"${col}" ${type}`;
+      }).join(', ');
+      
+      // Create table
+      await conn.query(`CREATE TABLE ${tableName} (${columnDefs})`);
+      
+      // Insert data in batches
+      const batchSize = 1000;
+      for (let i = 0; i < data.length; i += batchSize) {
+        const batch = data.slice(i, i + batchSize);
+        const values = batch.map(row => {
+          const vals = columns.map(col => {
+            const val = row[col];
+            if (val === null || val === undefined) return 'NULL';
+            if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+            return val;
+          }).join(', ');
+          return `(${vals})`;
+        }).join(', ');
+        
+        await conn.query(`INSERT INTO ${tableName} VALUES ${values}`);
+      }
+      
+      // Refresh tables list
+      await refreshTables();
+      
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to import CSV');
+    }
+  }
+
 
   return (
     <div className="flex h-screen bg-background">
       {/* Left Sidebar */}
-      <DatabaseSidebar tables={tables} onTableClick={(name) => setQuery(`SELECT * FROM ${name};`)} />
+      <DatabaseSidebar 
+        tables={tables} 
+        onTableClick={(name) => setQuery(`SELECT * FROM ${name};`)}
+        onImportCSV={handleImportCSV}
+        onRefresh={refreshTables}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
-        <div className="h-12 border-b border-border flex items-center justify-end px-4 bg-card">
+        <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-card">
           <div className="text-xs text-muted-foreground">
             DuckDB Web Interface
           </div>
+          <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
+                <History className="w-3.5 h-3.5" />
+                <span className="text-xs">History ({queryHistory.length})</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[400px] sm:w-[540px] p-0">
+              <SheetHeader className="px-4 py-3 border-b">
+                <SheetTitle>Query History</SheetTitle>
+              </SheetHeader>
+              <QueryHistory 
+                history={queryHistory}
+                onRunQuery={(q) => {
+                  setQuery(q);
+                  setHistoryOpen(false);
+                  setTimeout(() => handleExecuteQuery(), 100);
+                }}
+                onClearHistory={() => setQueryHistory([])}
+              />
+            </SheetContent>
+          </Sheet>
         </div>
 
         {/* Query and Results */}
@@ -135,7 +261,12 @@ const Index = () => {
 
           {results.length > 0 && (
             <>
-              <div className="text-xs font-medium text-muted-foreground">Query results</div>
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-medium text-muted-foreground">Query results</div>
+                <div className="text-xs text-muted-foreground">
+                  Showing {Math.min(results.length, 100)} of {results.length.toLocaleString()} rows
+                </div>
+              </div>
               <ResultsTable data={results} onColumnClick={setSelectedColumn} />
             </>
           )}
@@ -143,7 +274,11 @@ const Index = () => {
       </div>
 
       {/* Right Diagnostics Panel */}
-      <ColumnDiagnostics data={results} selectedColumn={selectedColumn} />
+      <ColumnDiagnostics 
+        data={results} 
+        selectedColumn={selectedColumn}
+        onColumnSelect={setSelectedColumn}
+      />
     </div>
   );
 };

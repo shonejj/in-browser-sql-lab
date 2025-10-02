@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock } from 'lucide-react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { CSVImporter } from './CSVImporter';
 
 interface Column {
   name: string;
@@ -13,9 +14,11 @@ interface Column {
 interface DatabaseSidebarProps {
   tables: Array<{ name: string; rowCount: number; columns: Column[] }>;
   onTableClick: (tableName: string) => void;
+  onImportCSV: (tableName: string, data: any[], columns: string[]) => Promise<void>;
+  onRefresh?: () => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(['trains']));
 
@@ -155,14 +158,19 @@ export function DatabaseSidebar({ tables, onTableClick }: DatabaseSidebarProps) 
 
       {/* Footer Actions */}
       <div className="p-2 border-t border-sidebar-border flex gap-1">
+        <CSVImporter onImport={onImportCSV} />
+        {onRefresh && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
+            onClick={onRefresh}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+        )}
         <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent">
           <Search className="w-3.5 h-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent">
-          <Copy className="w-3.5 h-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent">
-          <MoreHorizontal className="w-3.5 h-3.5" />
         </Button>
       </div>
     </div>

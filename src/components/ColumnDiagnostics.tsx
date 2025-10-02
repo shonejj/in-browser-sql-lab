@@ -6,9 +6,10 @@ import { Button } from './ui/button';
 interface ColumnDiagnosticsProps {
   data: any[];
   selectedColumn?: string;
+  onColumnSelect?: (column: string) => void;
 }
 
-export function ColumnDiagnostics({ data, selectedColumn }: ColumnDiagnosticsProps) {
+export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect }: ColumnDiagnosticsProps) {
   const columnStats = useMemo(() => {
     if (data.length === 0) return null;
 
@@ -119,8 +120,9 @@ export function ColumnDiagnostics({ data, selectedColumn }: ColumnDiagnosticsPro
         {Object.entries(columnStats).map(([col, stats]: [string, any]) => (
           <div
             key={col}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs ${
-              selectedColumn === col ? 'bg-muted/50' : ''
+            onClick={() => onColumnSelect?.(col)}
+            className={`flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs transition-colors ${
+              selectedColumn === col ? 'bg-primary/10 border border-primary/20' : ''
             }`}
           >
             <span className="text-muted-foreground">{getColumnIcon(stats.type)}</span>

@@ -7,8 +7,16 @@ import {
   SortingState,
   ColumnDef,
 } from '@tanstack/react-table';
-import { ArrowUpDown, Download } from 'lucide-react';
+import { ArrowUpDown, Download, FileJson, FileSpreadsheet } from 'lucide-react';
 import { Button } from './ui/button';
+import { saveAs } from 'file-saver';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 interface ResultsTableProps {
   data: any[];
@@ -17,6 +25,31 @@ interface ResultsTableProps {
 
 export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+
+  const exportToCSV = () => {
+    if (data.length === 0) return;
+    
+    const headers = Object.keys(data[0]).join(',');
+    const rows = data.map(row => 
+      Object.values(row).map(val => 
+        typeof val === 'string' && val.includes(',') ? `"${val}"` : val
+      ).join(',')
+    );
+    
+    const csv = [headers, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    saveAs(blob, `query-results-${new Date().toISOString().slice(0,10)}.csv`);
+    toast.success('Exported to CSV');
+  };
+
+  const exportToJSON = () => {
+    if (data.length === 0) return;
+    
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    saveAs(blob, `query-results-${new Date().toISOString().slice(0,10)}.json`);
+    toast.success('Exported to JSON');
+  };
 
   const columns = useMemo<ColumnDef<any>[]>(() => {
     if (data.length === 0) return [];
@@ -107,10 +140,24 @@ export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
           <span className="text-xs font-medium">
             {data.length.toLocaleString()} Rows
           </span>
-          <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
-            <Download className="w-3 h-3" />
-            <span className="text-xs">Export</span>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
+                <Download className="w-3 h-3" />
+                <span className="text-xs">Export</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={exportToCSV}>
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportToJSON}>
+                <FileJson className="w-4 h-4 mr-2" />
+                Export as JSON
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </div>
