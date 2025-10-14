@@ -4,6 +4,7 @@ import { QueryEditor } from '@/components/QueryEditor';
 import { ResultsTable } from '@/components/ResultsTable';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
+import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { initDuckDB, executeQuery, getConnection } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
@@ -288,6 +289,15 @@ const Index = () => {
         data={results} 
         selectedColumn={selectedColumn}
         onColumnSelect={setSelectedColumn}
+      />
+
+      {/* AI Chat Assistant */}
+      <AIChatAssistant 
+        tables={tables}
+        onQuerySelect={(query) => {
+          setQuery(query);
+          toast.success('Query loaded from AI assistant');
+        }}
       />
     </div>
   );
