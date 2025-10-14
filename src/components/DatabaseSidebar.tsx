@@ -51,10 +51,12 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }
     return <BarChart3 className="w-3 h-3" />;
   };
 
-  const formatCount = (count: number) => {
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-    return count.toString();
+  const formatCount = (count: number | bigint) => {
+    // Convert BigInt to Number to avoid "Cannot mix BigInt and other types" errors
+    const numCount = typeof count === 'bigint' ? Number(count) : count;
+    if (numCount >= 1000000) return `${(numCount / 1000000).toFixed(1)}M`;
+    if (numCount >= 1000) return `${(numCount / 1000).toFixed(1)}k`;
+    return numCount.toString();
   };
 
   return (
