@@ -31,7 +31,14 @@ export async function executeQuery(query: string) {
   
   try {
     const result = await conn!.query(query);
-    return result.toArray().map(row => Object.fromEntries(row));
+    return result.toArray().map(row => {
+      const obj: any = {};
+      for (const [key, value] of row) {
+        // Convert BigInt to Number to avoid "Cannot mix BigInt and other types" errors
+        obj[key] = typeof value === 'bigint' ? Number(value) : value;
+      }
+      return obj;
+    });
   } catch (error) {
     throw error;
   }
