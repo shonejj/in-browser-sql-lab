@@ -3,12 +3,15 @@ import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
   flexRender,
   SortingState,
   ColumnDef,
 } from '@tanstack/react-table';
-import { ArrowUpDown, Download, FileJson, FileSpreadsheet } from 'lucide-react';
+import { ArrowUpDown, Download, FileJson, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { saveAs } from 'file-saver';
 import { toast } from 'sonner';
 import {
@@ -25,6 +28,7 @@ interface ResultsTableProps {
 
 export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [globalFilter, setGlobalFilter] = useState('');
 
   const exportToCSV = () => {
     if (data.length === 0) return;
@@ -79,10 +83,21 @@ export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
   const table = useReactTable({
     data,
     columns,
-    state: { sorting },
+    state: { 
+      sorting,
+      globalFilter,
+    },
     onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: {
+        pageSize: 100,
+      },
+    },
   });
 
   if (data.length === 0) {
@@ -113,7 +128,7 @@ export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.slice(0, 100).map((row, idx) => (
+            {table.getRowModel().rows.map((row, idx) => (
               <tr
                 key={row.id}
                 className={`border-b border-border last:border-0 hover:bg-muted/20 ${
@@ -134,12 +149,38 @@ export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-muted/20">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Filter</span>
+          <span className="text-xs text-muted-foreground">Filter:</span>
+          <Input
+            placeholder="Search all columns..."
+            value={globalFilter ?? ''}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            className="h-7 w-64 text-xs"
+          />
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-xs font-medium">
-            {data.length.toLocaleString()} Rows
-          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+              className="h-7 px-2"
+            >
+              <ChevronLeft className="w-3 h-3" />
+            </Button>
+            <span className="text-xs font-medium">
+              Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()} ({table.getFilteredRowModel().rows.length.toLocaleString()} rows)
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+              className="h-7 px-2"
+            >
+              <ChevronRight className="w-3 h-3" />
+            </Button>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">

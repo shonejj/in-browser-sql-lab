@@ -34,7 +34,7 @@ const Index = () => {
       // Generate and insert sample data
       const trainData = generateTrainData(10000);
       
-      // Create table using executeQuery for consistent handling
+      // Create trains table
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS trains (
           service_id INTEGER,
@@ -48,7 +48,7 @@ const Index = () => {
         )
       `);
 
-      // Insert data in batches
+      // Insert train data in batches
       const batchSize = 1000;
       for (let i = 0; i < trainData.length; i += batchSize) {
         const batch = trainData.slice(i, i + batchSize);
@@ -57,6 +57,17 @@ const Index = () => {
         ).join(',');
         
         await executeQuery(`INSERT INTO trains VALUES ${values}`);
+      }
+
+      // Create NYC taxi trips table from remote CSV
+      try {
+        await executeQuery(`
+          CREATE TABLE nyc_taxi_trips AS
+          SELECT *
+          FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
+        `);
+      } catch (error) {
+        console.warn('Failed to load NYC taxi data:', error);
       }
 
       setIsInitialized(true);

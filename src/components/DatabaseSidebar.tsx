@@ -3,6 +3,7 @@ import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHo
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { CSVImporter } from './CSVImporter';
+import { toast } from 'sonner';
 
 interface Column {
   name: string;
@@ -68,7 +69,12 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }
           <h1 className="font-semibold text-sm">DuckDB</h1>
         </div>
         
-        <Button variant="ghost" className="w-full justify-start text-xs font-normal h-8 text-sidebar-foreground hover:bg-sidebar-accent">
+        <Button 
+          variant="ghost" 
+          className="w-full justify-start text-xs font-normal h-8 text-sidebar-foreground hover:bg-sidebar-accent"
+          disabled
+          title="Notebooks feature coming soon"
+        >
           <span>Notebooks</span>
           <ChevronRight className="w-3 h-3 ml-auto" />
         </Button>
@@ -83,7 +89,13 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }
         <div className="p-2">
           <div className="flex items-center justify-between px-2 py-1.5 text-xs font-medium text-sidebar-foreground/60">
             <span>Attached databases</span>
-            <Button variant="ghost" size="icon" className="h-5 w-5">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-5 w-5"
+              disabled
+              title="Attach database feature coming soon"
+            >
               <Plus className="w-3 h-3" />
             </Button>
           </div>
@@ -111,21 +123,44 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }
 
                 {tables.map((table) => (
                   <div key={table.name} className="mt-0.5">
-                    <button
-                      onClick={() => toggleTable(table.name)}
-                      className="flex items-center gap-1.5 px-2 py-1.5 w-full hover:bg-sidebar-accent rounded text-xs group"
-                    >
-                      {expandedTables.has(table.name) ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                      <Table2 className="w-3 h-3 text-sidebar-primary" />
-                      <span className="flex-1 text-left">{table.name}</span>
-                      <span className="text-xs text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70">
-                        {formatCount(table.rowCount)} rows
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1 w-full group">
+                      <button
+                        onClick={() => toggleTable(table.name)}
+                        className="flex items-center gap-1.5 px-2 py-1.5 flex-1 hover:bg-sidebar-accent rounded text-xs"
+                      >
+                        {expandedTables.has(table.name) ? (
+                          <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
+                        <Table2 className="w-3 h-3 text-sidebar-primary" />
+                        <span className="flex-1 text-left truncate" title={table.name}>{table.name}</span>
+                        <span className="text-xs text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70">
+                          {formatCount(table.rowCount)} rows
+                        </span>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={() => {
+                          navigator.clipboard.writeText(table.name);
+                          toast.success(`Copied "${table.name}" to clipboard`);
+                        }}
+                        title="Copy table name"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={() => onTableClick(table.name)}
+                        title="Preview table"
+                      >
+                        <MoreHorizontal className="w-3 h-3" />
+                      </Button>
+                    </div>
 
                     {expandedTables.has(table.name) && (
                       <div className="ml-6 mt-1 space-y-1 pb-2">
@@ -171,7 +206,13 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }
             <RefreshCw className="w-3.5 h-3.5" />
           </Button>
         )}
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
+          disabled
+          title="Search feature coming soon"
+        >
           <Search className="w-3.5 h-3.5" />
         </Button>
       </div>

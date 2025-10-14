@@ -99,6 +99,12 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
           defaultLanguage="sql"
           value={query}
           onChange={(value) => onQueryChange(value || '')}
+          onMount={(editor, monaco) => {
+            // Add Ctrl+Enter keyboard shortcut
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+              handleExecute();
+            });
+          }}
           theme="vs-light"
           options={{
             minimap: { enabled: false },
