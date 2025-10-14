@@ -29,14 +29,14 @@ const Index = () => {
     try {
       toast.loading('Initializing DuckDB...', { id: 'init' });
       
-      const { conn } = await initDuckDB();
+      await initDuckDB();
       
       // Generate and insert sample data
       const trainData = generateTrainData(10000);
       
-      // Create table
-      await conn.query(`
-        CREATE TABLE trains (
+      // Create table using executeQuery for consistent handling
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS trains (
           service_id INTEGER,
           date DATE,
           type VARCHAR,
@@ -56,20 +56,20 @@ const Index = () => {
           `(${row.service_id}, '${row.date}', '${row.type}', ${row.train_number}, '${row.station_code}', '${row.station_name}', ${row.departure_time ? `'${row.departure_time}'` : 'NULL'}, ${row.arrival_time ? `'${row.arrival_time}'` : 'NULL'})`
         ).join(',');
         
-        await conn.query(`INSERT INTO trains VALUES ${values}`);
+        await executeQuery(`INSERT INTO trains VALUES ${values}`);
       }
 
-      toast.success('Database initialized with 10k sample records', { id: 'init' });
       setIsInitialized(true);
+      toast.success('Database initialized with 10k sample records', { id: 'init' });
       
       // Update tables list
       await refreshTables();
       
       // Auto-execute initial query
-      handleExecuteQuery();
+      setTimeout(() => handleExecuteQuery(), 100);
     } catch (error) {
       console.error('Failed to initialize database:', error);
-      toast.error('Failed to initialize database', { id: 'init' });
+      toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
     }
   }
 
@@ -128,22 +128,21 @@ const Index = () => {
 
   async function refreshTables() {
     try {
-      const conn = await getConnection();
-      const tablesResult = await conn.query("SELECT name FROM sqlite_master WHERE type='table'");
-      const tablesList = tablesResult.toArray();
+      // Get tables using the executeQuery helper which handles BigInt conversion
+      const tablesResult = await executeQuery("SELECT name FROM sqlite_master WHERE type='table'");
       
       const tablesData = [];
       
-      for (const tableRow of tablesList) {
+      for (const tableRow of tablesResult) {
         const tableName = tableRow.name;
         
-        // Get row count
-        const countResult = await conn.query(`SELECT COUNT(*) as count FROM ${tableName}`);
-        const rowCount = countResult.toArray()[0].count;
+        // Get row count - using executeQuery for proper BigInt handling
+        const countResult = await executeQuery(`SELECT COUNT(*) as count FROM ${tableName}`);
+        const rowCount = countResult[0].count;
         
-        // Get columns
-        const columnsResult = await conn.query(`PRAGMA table_info('${tableName}')`);
-        const columns = columnsResult.toArray().map((col: any) => ({
+        // Get columns - using executeQuery for proper BigInt handling
+        const columnsResult = await executeQuery(`PRAGMA table_info('${tableName}')`);
+        const columns = columnsResult.map((col: any) => ({
           name: col.name,
           type: col.type,
         }));
@@ -163,8 +162,6 @@ const Index = () => {
 
   async function handleImportCSV(tableName: string, data: any[], columns: string[]) {
     try {
-      const conn = await getConnection();
-      
       // Create column definitions
       const columnDefs = columns.map(col => {
         // Infer type from first non-null value
@@ -180,8 +177,8 @@ const Index = () => {
         return `"${col}" ${type}`;
       }).join(', ');
       
-      // Create table
-      await conn.query(`CREATE TABLE ${tableName} (${columnDefs})`);
+      // Create table using executeQuery for consistent handling
+      await executeQuery(`CREATE TABLE ${tableName} (${columnDefs})`);
       
       // Insert data in batches
       const batchSize = 1000;
@@ -197,13 +194,15 @@ const Index = () => {
           return `(${vals})`;
         }).join(', ');
         
-        await conn.query(`INSERT INTO ${tableName} VALUES ${values}`);
+        await executeQuery(`INSERT INTO ${tableName} VALUES ${values}`);
       }
       
       // Refresh tables list
       await refreshTables();
       
+      toast.success(`Imported ${data.length} rows into ${tableName}`);
     } catch (error: any) {
+      console.error('CSV import error:', error);
       throw new Error(error.message || 'Failed to import CSV');
     }
   }
