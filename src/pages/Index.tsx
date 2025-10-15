@@ -8,10 +8,9 @@ import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { initDuckDB, executeQuery, getConnection } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
-import { History, X } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-
 const Index = () => {
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<any[]>([]);
@@ -21,6 +20,8 @@ const Index = () => {
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
   const [tables, setTables] = useState<Array<{ name: string; rowCount: number; columns: any[] }>>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   useEffect(() => {
     initializeDatabase();
@@ -222,43 +223,75 @@ const Index = () => {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Left Sidebar */}
-      <DatabaseSidebar 
-        tables={tables} 
-        onTableClick={(name) => setQuery(`SELECT * FROM ${name};`)}
-        onImportCSV={handleImportCSV}
-        onRefresh={refreshTables}
-      />
+      {/* Left Sidebar - Collapsible */}
+      {leftSidebarOpen && (
+        <DatabaseSidebar 
+          tables={tables} 
+          onTableClick={(name) => setQuery(`SELECT * FROM ${name};`)}
+          onImportCSV={handleImportCSV}
+          onRefresh={refreshTables}
+        />
+      )}
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
         <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-card">
-          <div className="text-xs text-muted-foreground">
-            DuckDB Web Interface
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+              className="h-8 w-8"
+            >
+              {leftSidebarOpen ? (
+                <PanelLeftClose className="w-4 h-4" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4" />
+              )}
+            </Button>
+            <div className="text-xs text-muted-foreground">
+              DuckDB Web Interface
+            </div>
           </div>
-          <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
-                <History className="w-3.5 h-3.5" />
-                <span className="text-xs">History ({queryHistory.length})</span>
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-[400px] sm:w-[540px] p-0">
-              <SheetHeader className="px-4 py-3 border-b">
-                <SheetTitle>Query History</SheetTitle>
-              </SheetHeader>
-              <QueryHistory 
-                history={queryHistory}
-                onRunQuery={(q) => {
-                  setQuery(q);
-                  setHistoryOpen(false);
-                  setTimeout(() => handleExecuteQuery(), 100);
-                }}
-                onClearHistory={() => setQueryHistory([])}
-              />
-            </SheetContent>
-          </Sheet>
+          
+          <div className="flex items-center gap-2">
+            <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
+                  <History className="w-3.5 h-3.5" />
+                  <span className="text-xs">History ({queryHistory.length})</span>
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-[400px] sm:w-[540px] p-0">
+                <SheetHeader className="px-4 py-3 border-b">
+                  <SheetTitle>Query History</SheetTitle>
+                </SheetHeader>
+                <QueryHistory 
+                  history={queryHistory}
+                  onRunQuery={(q) => {
+                    setQuery(q);
+                    setHistoryOpen(false);
+                    setTimeout(() => handleExecuteQuery(), 100);
+                  }}
+                  onClearHistory={() => setQueryHistory([])}
+                />
+              </SheetContent>
+            </Sheet>
+
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+              className="h-8 w-8"
+            >
+              {rightSidebarOpen ? (
+                <PanelRightClose className="w-4 h-4" />
+              ) : (
+                <PanelRightOpen className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Query and Results */}
@@ -284,12 +317,14 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Right Diagnostics Panel */}
-      <ColumnDiagnostics 
-        data={results} 
-        selectedColumn={selectedColumn}
-        onColumnSelect={setSelectedColumn}
-      />
+      {/* Right Diagnostics Panel - Collapsible */}
+      {rightSidebarOpen && (
+        <ColumnDiagnostics 
+          data={results} 
+          selectedColumn={selectedColumn}
+          onColumnSelect={setSelectedColumn}
+        />
+      )}
 
       {/* AI Chat Assistant */}
       <AIChatAssistant 
