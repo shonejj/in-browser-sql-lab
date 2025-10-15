@@ -42,7 +42,10 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
       const pipe = await pipeline(
         'text-generation',
         'onnx-community/Qwen2.5-Coder-0.5B-Instruct',
-        { device: 'webgpu' }
+        { 
+          dtype: 'q4',
+          device: 'wasm'
+        }
       );
       setGenerator(pipe);
       toast.success('AI model loaded successfully!', { id: 'ai-init' });
