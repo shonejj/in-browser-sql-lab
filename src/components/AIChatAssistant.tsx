@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { pipeline, TextGenerationPipeline } from '@huggingface/transformers';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
@@ -22,7 +21,7 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [generator, setGenerator] = useState<TextGenerationPipeline | null>(null);
+  const [engine, setEngine] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -33,21 +32,27 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
   }, [messages]);
 
   const initializeModel = async () => {
-    if (generator || isInitializing) return;
+    if (engine || isInitializing) return;
     
     setIsInitializing(true);
     toast.loading('Loading AI model... This may take a minute.', { id: 'ai-init' });
     
     try {
-      const pipe = await pipeline(
-        'text-generation',
-        'onnx-community/Qwen2.5-Coder-0.5B-Instruct',
-        { 
-          dtype: 'q4',
-          device: 'wasm'
+      // Load WebLLM from CDN
+      const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm' as any);
+      
+      // Use a tiny, fast model
+      const selectedModel = "Phi-1.5-q4f16_1-MLC";
+      
+      const engineInstance = await CreateMLCEngine(selectedModel, {
+        initProgressCallback: (info: any) => {
+          if (info.text) {
+            console.log('Loading:', info.text);
+          }
         }
-      );
-      setGenerator(pipe);
+      });
+      
+      setEngine(engineInstance);
       toast.success('AI model loaded successfully!', { id: 'ai-init' });
       
       // Add welcome message
@@ -58,7 +63,6 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
     } catch (error) {
       console.error('Failed to initialize model:', error);
       toast.error('Failed to load AI model. Please try again.', { id: 'ai-init' });
-      setIsInitializing(false);
     } finally {
       setIsInitializing(false);
     }
@@ -74,7 +78,7 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
   };
 
   const handleSend = async () => {
-    if (!input.trim() || !generator) return;
+    if (!input.trim() || !engine) return;
 
     const userMessage = input.trim();
     setInput('');
@@ -83,29 +87,22 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
 
     try {
       const tableContext = getTableContext();
-      const systemPrompt = `You are a helpful SQL assistant for DuckDB. Here are the available tables:\n\n${tableContext}\n\nGenerate only valid DuckDB SQL queries. Keep responses concise and provide working SQL code.`;
+      const systemPrompt = `You are a helpful SQL assistant for DuckDB. Here are the available tables:\n\n${tableContext}\n\nGenerate only valid DuckDB SQL queries. Keep responses concise and provide working SQL code in a code block.`;
       
-      const prompt = `${systemPrompt}\n\nUser: ${userMessage}\nAssistant:`;
-      
-      const result = await generator(prompt, {
-        max_new_tokens: 200,
+      const completion = await engine.chat.completions.create({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
         temperature: 0.7,
-        do_sample: true,
-        top_k: 50,
+        max_tokens: 256,
       });
 
-      let assistantResponse = '';
-      if (Array.isArray(result)) {
-        assistantResponse = (result[0] as any).generated_text || '';
-      } else {
-        assistantResponse = (result as any).generated_text || '';
-      }
-      
-      const cleanResponse = assistantResponse.split('Assistant:').pop()?.trim() || assistantResponse;
+      const assistantResponse = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
       
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: cleanResponse 
+        content: assistantResponse 
       }]);
     } catch (error) {
       console.error('Error generating response:', error);
@@ -149,7 +146,7 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
       <Button
         onClick={() => {
           setIsOpen(true);
-          if (!generator && !isInitializing) {
+          if (!engine && !isInitializing) {
             initializeModel();
           }
         }}
@@ -170,7 +167,7 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
           <div>
             <h3 className="font-semibold text-sm">SQL Assistant</h3>
             <p className="text-xs text-muted-foreground">
-              {isInitializing ? 'Loading...' : generator ? 'Ready' : 'Click to initialize'}
+              {isInitializing ? 'Loading...' : engine ? 'Ready' : 'Click to initialize'}
             </p>
           </div>
         </div>
@@ -187,7 +184,7 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
-          {!generator && !isInitializing && (
+          {!engine && !isInitializing && (
             <div className="text-center py-8">
               <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
               <p className="text-sm text-muted-foreground mb-4">
@@ -249,21 +246,21 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && !isLoading && generator && handleSend()}
-            placeholder={generator ? "Ask me to write a query..." : "Initialize AI first"}
-            disabled={!generator || isLoading}
+            onKeyPress={(e) => e.key === 'Enter' && !isLoading && engine && handleSend()}
+            placeholder={engine ? "Ask me to write a query..." : "Initialize AI first"}
+            disabled={!engine || isLoading}
             className="flex-1"
           />
           <Button
             onClick={handleSend}
-            disabled={!generator || isLoading || !input.trim()}
+            disabled={!engine || isLoading || !input.trim()}
             size="icon"
           >
             <Send className="h-4 w-4" />
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          Powered by Qwen2.5-Coder running in your browser
+          Powered by Phi-1.5 running in your browser
         </p>
       </div>
     </Card>
