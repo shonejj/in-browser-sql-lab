@@ -16,7 +16,7 @@ interface Column {
 interface DatabaseSidebarProps {
   tables: Array<{ name: string; rowCount: number; columns: Column[] }>;
   onTableClick: (tableName: string) => void;
-  onImportCSV: (tableName: string, data: any[], columns: string[]) => Promise<void>;
+  onImportCSV: (tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean }) => Promise<void>;
   onRefresh?: () => void;
   onDeleteTable?: (tableName: string) => void;
 }
@@ -210,7 +210,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
 
       {/* Footer Actions */}
       <div className="p-2 border-t border-sidebar-border flex gap-1">
-        <CSVImporter onImport={onImportCSV} />
+  <CSVImporter onImport={onImportCSV} />
         {onRefresh && (
           <Button 
             variant="ghost" 

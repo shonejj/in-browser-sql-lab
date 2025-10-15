@@ -173,11 +173,14 @@ const Index = () => {
     }
   }
 
-  async function handleImportCSV(tableName: string, data: any[], columns: string[]) {
+  async function handleImportCSV(tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean }) {
     try {
       // If data is a File passed for large import
       if (data && data.length === 1 && data[0] instanceof File) {
         const file = data[0] as File;
+        if (opts?.overwrite) {
+          await executeQuery(`DROP TABLE IF EXISTS "${tableName.replace(/"/g, '""')}"`);
+        }
         await importCSVFile(file, tableName, columns);
         await refreshTables();
         return;
@@ -187,26 +190,26 @@ const Index = () => {
       // check if table already exists
       const existsRes = await executeQuery(`SELECT name FROM sqlite_master WHERE type='table' AND name='${safeTable}'`);
       if (existsRes && existsRes.length > 0) {
-        throw new Error(`Table '${tableName}' already exists. Please delete it first or choose a different name.`);
+        if (opts?.overwrite) {
+          await executeQuery(`DROP TABLE IF EXISTS "${safeTable}"`);
+        } else {
+          throw new Error(`Table '${tableName}' already exists. Please delete it first or choose a different name.`);
+        }
       }
       // Create column definitions
       const columnDefs = columns.map(col => {
         // Infer type from first non-null value
         const firstValue = data.find(row => row[col] !== null && row[col] !== undefined)?.[col];
         let type = 'VARCHAR';
-        
         if (typeof firstValue === 'number') {
           type = Number.isInteger(firstValue) ? 'INTEGER' : 'DOUBLE';
         } else if (firstValue instanceof Date) {
           type = 'TIMESTAMP';
         }
-        
         return `"${col}" ${type}`;
       }).join(', ');
-      
       // Create table using executeQuery for consistent handling
-  await executeQuery(`CREATE TABLE "${safeTable}" (${columnDefs})`);
-      
+      await executeQuery(`CREATE TABLE "${safeTable}" (${columnDefs})`);
       // Insert data in batches
       const batchSize = 1000;
       for (let i = 0; i < data.length; i += batchSize) {
@@ -220,13 +223,10 @@ const Index = () => {
           }).join(', ');
           return `(${vals})`;
         }).join(', ');
-        
         await executeQuery(`INSERT INTO "${safeTable}" VALUES ${values}`);
       }
-      
       // Refresh tables list
       await refreshTables();
-      
       toast.success(`Imported ${data.length} rows into ${tableName}`);
     } catch (error: any) {
       console.error('CSV import error:', error);

@@ -8,11 +8,12 @@ import Papa from 'papaparse';
 import { toast } from 'sonner';
 
 interface CSVImporterProps {
-  onImport: (tableName: string, data: any[], columns: string[]) => Promise<void>;
+  onImport: (tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean }) => Promise<void>;
 }
 
 export function CSVImporter({ onImport }: CSVImporterProps) {
   const [open, setOpen] = useState(false);
+  const [overwrite, setOverwrite] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [tableName, setTableName] = useState('');
   const [importing, setImporting] = useState(false);
@@ -40,7 +41,7 @@ export function CSVImporter({ onImport }: CSVImporterProps) {
       const MAX_IN_MEMORY = 2 * 1024 * 1024; // 2MB threshold for client-side parse
       if (file.size > MAX_IN_MEMORY) {
         try {
-          await onImport(tableName, [file], [] as any);
+          await onImport(tableName, [file], [] as any, { overwrite });
           toast.success(`Imported large file into table "${tableName}"`);
           setOpen(false);
           setFile(null);
@@ -72,7 +73,7 @@ export function CSVImporter({ onImport }: CSVImporterProps) {
             const columns = results.meta.fields || [];
             
             try {
-              await onImport(tableName, results.data, columns);
+              await onImport(tableName, results.data, columns, { overwrite });
               toast.success(`Imported ${results.data.length} rows into table "${tableName}"`);
               setOpen(false);
               setFile(null);
@@ -148,6 +149,10 @@ export function CSVImporter({ onImport }: CSVImporterProps) {
               </div>
             )}
 
+            <label className="flex items-center gap-2 text-xs mt-2">
+              <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} />
+              Overwrite table if exists
+            </label>
             <div className="flex gap-2">
               <Button
                 onClick={handleImport}
