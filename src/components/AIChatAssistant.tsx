@@ -3,7 +3,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
-import { Bot, Send, X, Loader2, Settings, Sparkles } from 'lucide-react';
+import { Bot, Send, X, Loader2, Settings, Sparkles, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { AISettingsDialog, AIConfig } from './AISettingsDialog';
 
@@ -64,8 +64,12 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
 
   const handleSend = async () => {
     if (!input.trim() || !aiConfig) return;
-
+    // Enforce memory limit: keep only the last N non-system messages when sending
+    const memoryLimit = 2;
     const userMessage = input.trim();
+    // Snapshot previous messages (state may update asynchronously)
+    const prevMessages = messages.slice();
+    // Immediately show user's message in UI
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
@@ -75,43 +79,87 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
       const systemPrompt = `You are a helpful SQL assistant for DuckDB. Here are the available tables:\n\n${tableContext}\n\nGenerate only valid DuckDB SQL queries. Keep responses concise and provide working SQL code in a code block.`;
       
       let response: Response;
-      const messages = [
+      // Build messages with memory limit: include system prompt then last N non-system messages
+      const nonSystem = (arr: Message[]) => arr.filter(m => m.role !== 'system');
+      const currentNonSystem = nonSystem(prevMessages);
+      // take only the last `memoryLimit` messages prior to this turn
+      const history = currentNonSystem.slice(-memoryLimit);
+      const messagesToSend = [
         { role: 'system', content: systemPrompt },
+        ...history,
         { role: 'user', content: userMessage }
       ];
 
-      if (aiConfig.provider === 'gemini') {
-        // Gemini API has different format
-        const geminiUrl = `${aiConfig.baseUrl}/chat/completions?key=${aiConfig.apiKey}`;
-        response = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: aiConfig.model,
-            messages,
-            temperature: 0.7,
-            max_tokens: 512,
-          }),
-        });
-      } else if (aiConfig.provider === 'claude') {
-        // Claude API format
-        response = await fetch(`${aiConfig.baseUrl}/messages`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': aiConfig.apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          body: JSON.stringify({
-            model: aiConfig.model,
-            messages: messages.filter(m => m.role !== 'system'),
-            system: systemPrompt,
-            max_tokens: 512,
-          }),
-        });
+  if (aiConfig.provider === 'gemini') {
+        // Gemini API: follow the curl example using x-goog-api-key header.
+        // Try v1 and v1beta variants and multiple method names until one succeeds.
+        const base = aiConfig.baseUrl.replace(/\/$/, '');
+        const variants = new Set<string>([base]);
+        // Add common alternates if base contains v1 or v1beta
+        if (base.includes('/v1')) variants.add(base.replace(/\/v1$/, '/v1beta'));
+        if (base.includes('/v1beta')) variants.add(base.replace(/\/v1beta$/, '/v1'));
+
+  const methodNames = ['generateContent'];
+  const geminiCandidates: string[] = [];
+        // Normalize model id: strip any 'models/' prefix or project segments. If model contains spaces, also build a slug fallback.
+        const rawModel = String(aiConfig.model);
+        const modelIdBase = rawModel.split('/').pop() || rawModel;
+        const slugModel = modelIdBase.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        const modelCandidates = Array.from(new Set([modelIdBase, slugModel]));
+        for (const v of Array.from(variants)) {
+          for (const m of methodNames) {
+            for (const mid of modelCandidates) {
+              geminiCandidates.push(`${v}/models/${mid}:${m}`);
+            }
+          }
+        }
+
+        let lastErrText = '';
+        let ok = false;
+        for (const url of geminiCandidates) {
+          try {
+            // Non-streaming Gemini request using the generateContent shape (contents/parts)
+            response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiConfig.apiKey },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      { text: systemPrompt },
+                      { text: userMessage }
+                    ]
+                  }
+                ]
+              }),
+            });
+
+            if (response.ok) {
+              ok = true;
+              break;
+            }
+
+            const text = await response.text().catch(() => '<no body>');
+            lastErrText = `URL ${url} -> ${response.status} ${response.statusText}: ${text}`;
+            console.warn('Gemini candidate failed:', lastErrText);
+          } catch (err) {
+            // fetch() TypeError often indicates network/CORS issues in browser
+            console.error('Gemini request error for', url, err);
+            lastErrText = String(err);
+            if (err instanceof TypeError) {
+              // Provide a clearer hint about CORS and proxy requirement
+              lastErrText += ' (Possible CORS or network error - browser requests to Google APIs may be blocked; consider using a server-side proxy with your API key)';
+            }
+          }
+        }
+
+        if (!ok) {
+          throw new Error(`Gemini endpoints failed. Last error: ${lastErrText}`);
+        }
       } else {
-        // OpenAI-compatible format (OpenAI, Groq, Grok, Custom)
-        response = await fetch(`${aiConfig.baseUrl}/chat/completions`, {
+        // Custom/OpenAI-compatible provider
+        // Simple non-streaming OpenAI-compatible request
+        response = await fetch(`${aiConfig.baseUrl.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -119,24 +167,34 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
           },
           body: JSON.stringify({
             model: aiConfig.model,
-            messages,
+            messages: messagesToSend,
             temperature: 0.7,
-            max_tokens: 512,
+            max_tokens: 512
           }),
         });
       }
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
+        // Include response body in the thrown error to make debugging easier (shows server error details)
+        const text = await response.text().catch(() => '<no body>');
+        throw new Error(`API error: ${response.status} ${response.statusText} - ${text}`);
       }
 
       const data = await response.json();
       let assistantResponse: string;
 
-      if (aiConfig.provider === 'claude') {
-        assistantResponse = data.content?.[0]?.text || 'Sorry, I could not generate a response.';
+      if (aiConfig.provider === 'gemini') {
+        assistantResponse =
+          data.candidates?.[0]?.content?.parts?.[0]?.text ||
+          data.candidates?.[0]?.content?.text ||
+          data.result?.content?.parts?.[0]?.text ||
+          data.output?.[0]?.content?.text ||
+          data.outputText ||
+          data.content?.[0]?.text ||
+          JSON.stringify(data);
       } else {
-        assistantResponse = data.choices?.[0]?.message?.content || 'Sorry, I could not generate a response.';
+        // Custom/OpenAI-compatible
+        assistantResponse = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || data.choices?.[0]?.delta?.content || JSON.stringify(data);
       }
       
       setMessages(prev => [...prev, { 
@@ -211,6 +269,17 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
               className="h-8 w-8"
             >
               <Settings className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                // Reset chat
+                setMessages([{ role: 'assistant', content: "Hi! I'm your SQL assistant. I can help you write DuckDB queries based on your tables. What would you like to query?" }]);
+              }}
+              className="h-8 w-8"
+            >
+              <RotateCw className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"

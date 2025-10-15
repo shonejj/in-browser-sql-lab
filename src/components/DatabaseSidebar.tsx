@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock, RefreshCw } from 'lucide-react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { CSVImporter } from './CSVImporter';
 import { toast } from 'sonner';
+import NotebookManager from './NotebookManager';
 
 interface Column {
   name: string;
@@ -17,9 +18,10 @@ interface DatabaseSidebarProps {
   onTableClick: (tableName: string) => void;
   onImportCSV: (tableName: string, data: any[], columns: string[]) => Promise<void>;
   onRefresh?: () => void;
+  onDeleteTable?: (tableName: string) => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(['trains']));
 
@@ -159,6 +161,19 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh }
                         title="Preview table"
                       >
                         <MoreHorizontal className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={() => {
+                          if (!onDeleteTable) return;
+                          const ok = confirm(`Delete table "${table.name}"? This cannot be undone.`);
+                          if (ok) onDeleteTable(table.name);
+                        }}
+                        title="Delete table"
+                      >
+                        <X className="w-3 h-3" />
                       </Button>
                     </div>
 

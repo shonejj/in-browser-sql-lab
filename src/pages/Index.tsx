@@ -5,7 +5,7 @@ import { ResultsTable } from '@/components/ResultsTable';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
-import { initDuckDB, executeQuery, getConnection } from '@/lib/duckdb';
+import { initDuckDB, executeQuery, getConnection, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
 import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
@@ -175,6 +175,20 @@ const Index = () => {
 
   async function handleImportCSV(tableName: string, data: any[], columns: string[]) {
     try {
+      // If data is a File passed for large import
+      if (data && data.length === 1 && data[0] instanceof File) {
+        const file = data[0] as File;
+        await importCSVFile(file, tableName, columns);
+        await refreshTables();
+        return;
+      }
+      // protect table name
+      const safeTable = String(tableName).replace(/"/g, '""');
+      // check if table already exists
+      const existsRes = await executeQuery(`SELECT name FROM sqlite_master WHERE type='table' AND name='${safeTable}'`);
+      if (existsRes && existsRes.length > 0) {
+        throw new Error(`Table '${tableName}' already exists. Please delete it first or choose a different name.`);
+      }
       // Create column definitions
       const columnDefs = columns.map(col => {
         // Infer type from first non-null value
@@ -191,7 +205,7 @@ const Index = () => {
       }).join(', ');
       
       // Create table using executeQuery for consistent handling
-      await executeQuery(`CREATE TABLE ${tableName} (${columnDefs})`);
+  await executeQuery(`CREATE TABLE "${safeTable}" (${columnDefs})`);
       
       // Insert data in batches
       const batchSize = 1000;
@@ -207,7 +221,7 @@ const Index = () => {
           return `(${vals})`;
         }).join(', ');
         
-        await executeQuery(`INSERT INTO ${tableName} VALUES ${values}`);
+        await executeQuery(`INSERT INTO "${safeTable}" VALUES ${values}`);
       }
       
       // Refresh tables list
@@ -217,6 +231,18 @@ const Index = () => {
     } catch (error: any) {
       console.error('CSV import error:', error);
       throw new Error(error.message || 'Failed to import CSV');
+    }
+  }
+
+  async function handleDeleteTable(tableName: string) {
+    try {
+      const safeTable = String(tableName).replace(/"/g, '""');
+      await executeQuery(`DROP TABLE IF EXISTS "${safeTable}"`);
+      await refreshTables();
+      toast.success(`Table '${tableName}' deleted`);
+    } catch (error: any) {
+      console.error('Failed to delete table:', error);
+      toast.error(`Failed to delete table: ${error?.message || 'Unknown error'}`);
     }
   }
 
@@ -230,6 +256,7 @@ const Index = () => {
           onTableClick={(name) => setQuery(`SELECT * FROM ${name};`)}
           onImportCSV={handleImportCSV}
           onRefresh={refreshTables}
+          onDeleteTable={handleDeleteTable}
         />
       )}
 

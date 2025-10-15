@@ -1,4 +1,5 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
+import Papa from 'papaparse';
 
 let db: duckdb.AsyncDuckDB | null = null;
 let conn: duckdb.AsyncDuckDBConnection | null = null;
@@ -49,4 +50,81 @@ export async function getConnection() {
     await initDuckDB();
   }
   return conn!;
+}
+
+export async function importCSVFile(file: File, tableName: string, columns?: string[]) {
+  // Try to use DuckDB wasm file registration for efficient import
+  const connection = await getConnection();
+  const safeName = tableName.replace(/[^a-zA-Z0-9_]/g, '_');
+
+  // Try registerFileBuffer if available
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    // Some versions provide registerFileBuffer on connection
+    if ((connection as any).registerFileBuffer) {
+      // register under a tmp filename
+      const remotePath = `/tmp/${safeName}.csv`;
+      await (connection as any).registerFileBuffer(remotePath, uint8);
+      // Create table from CSV using read_csv_auto
+      // Use a temp table and then rename to ensure atomicity
+      const tmpTable = `_tmp_${safeName}_${Date.now()}`;
+      await connection.query(`CREATE TABLE ${tmpTable} AS SELECT * FROM read_csv_auto('${remotePath}')`);
+      await connection.query(`ALTER TABLE ${tmpTable} RENAME TO "${safeName}"`);
+      return;
+    }
+  } catch (err) {
+    console.warn('registerFileBuffer not available or failed, falling back to client-side import', err);
+  }
+
+  // Fallback: parse CSV in chunks client-side with PapaParse and insert batches to avoid large memory spikes
+  return new Promise<void>((resolve, reject) => {
+    let created = false;
+    let cols: string[] = [];
+    const batchSize = 500;
+    let insertPromises: Promise<any>[] = [];
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      worker: false,
+      chunkSize: 1024 * 128,
+      chunk: (results) => {
+        const rows = results.data as any[];
+        if (!rows || rows.length === 0) return;
+
+        if (!created) {
+          cols = Object.keys(rows[0]);
+          const colDefs = cols.map(c => `"${c}" TEXT`).join(', ');
+          insertPromises.push(connection.query(`CREATE TABLE IF NOT EXISTS "${safeName}" (${colDefs})`));
+          created = true;
+        }
+
+        // Build batched inserts
+        let batch: string[] = [];
+        for (const r of rows) {
+          const vals = cols.map(c => (r[c] == null ? 'NULL' : `'${String(r[c]).replace(/'/g, "''")}'`)).join(',');
+          batch.push(`(${vals})`);
+          if (batch.length >= batchSize) {
+            const q = `INSERT INTO "${safeName}" (${cols.map(c=>`"${c}"`).join(',')}) VALUES ${batch.join(',')}`;
+            insertPromises.push(connection.query(q));
+            batch = [];
+          }
+        }
+        if (batch.length) {
+          const q = `INSERT INTO "${safeName}" (${cols.map(c=>`"${c}"`).join(',')}) VALUES ${batch.join(',')}`;
+          insertPromises.push(connection.query(q));
+        }
+      },
+      complete: async () => {
+        try {
+          await Promise.all(insertPromises);
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      },
+      error: (err) => reject(err),
+    });
+  });
 }
