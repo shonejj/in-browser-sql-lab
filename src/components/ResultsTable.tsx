@@ -9,7 +9,7 @@ import {
   SortingState,
   ColumnDef,
 } from '@tanstack/react-table';
-import { ArrowUpDown, Download, FileJson, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUpDown, Download, FileJson, FileSpreadsheet, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { saveAs } from 'file-saver';
@@ -24,11 +24,13 @@ import {
 interface ResultsTableProps {
   data: any[];
   onColumnClick?: (columnName: string) => void;
+  defaultCollapsed?: boolean;
 }
 
-export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
+export function ResultsTable({ data, onColumnClick, defaultCollapsed = false }: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
 
   const exportToCSV = () => {
     if (data.length === 0) return;
@@ -95,7 +97,7 @@ export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
     getPaginationRowModel: getPaginationRowModel(),
     initialState: {
       pagination: {
-        pageSize: 100,
+        pageSize: 50,
       },
     },
   });
@@ -110,97 +112,113 @@ export function ResultsTable({ data, onColumnClick }: ResultsTableProps) {
 
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-card">
-      {/* Table Header */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 border-b border-border sticky top-0">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
-                  >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row, idx) => (
-              <tr
-                key={row.id}
-                className={`border-b border-border last:border-0 hover:bg-muted/20 ${
-                  idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'
-                }`}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-2 text-xs whitespace-nowrap">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Collapsible Header */}
+      <div 
+        className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b border-border cursor-pointer hover:bg-muted/50"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex items-center gap-2">
+          {isCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          <span className="text-sm font-medium">Query Results</span>
+          <span className="text-xs text-muted-foreground">({data.length.toLocaleString()} rows)</span>
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-muted/20">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Filter:</span>
-          <Input
-            placeholder="Search all columns..."
-            value={globalFilter ?? ''}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            className="h-7 w-64 text-xs"
-          />
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-              className="h-7 px-2"
-            >
-              <ChevronLeft className="w-3 h-3" />
-            </Button>
-            <span className="text-xs font-medium">
-              Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()} ({table.getFilteredRowModel().rows.length.toLocaleString()} rows)
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-              className="h-7 px-2"
-            >
-              <ChevronRight className="w-3 h-3" />
-            </Button>
+      {!isCollapsed && (
+        <>
+          {/* Table Header */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 border-b border-border sticky top-0">
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row, idx) => (
+                  <tr
+                    key={row.id}
+                    className={`border-b border-border last:border-0 hover:bg-muted/20 ${
+                      idx % 2 === 0 ? 'bg-background' : 'bg-muted/10'
+                    }`}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-2 text-xs whitespace-nowrap">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
-                <Download className="w-3 h-3" />
-                <span className="text-xs">Export</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={exportToCSV}>
-                <FileSpreadsheet className="w-4 h-4 mr-2" />
-                Export as CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={exportToJSON}>
-                <FileJson className="w-4 h-4 mr-2" />
-                Export as JSON
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-muted/20">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Filter:</span>
+              <Input
+                placeholder="Search all columns..."
+                value={globalFilter ?? ''}
+                onChange={(e) => setGlobalFilter(e.target.value)}
+                className="h-7 w-64 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => table.previousPage()}
+                  disabled={!table.getCanPreviousPage()}
+                  className="h-7 px-2"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                </Button>
+                <span className="text-xs font-medium">
+                  Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()} ({table.getFilteredRowModel().rows.length.toLocaleString()} rows)
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => table.nextPage()}
+                  disabled={!table.getCanNextPage()}
+                  className="h-7 px-2"
+                >
+                  <ChevronRight className="w-3 h-3" />
+                </Button>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
+                    <Download className="w-3 h-3" />
+                    <span className="text-xs">Export</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-popover z-50">
+                  <DropdownMenuItem onClick={exportToCSV} className="cursor-pointer">
+                    <FileSpreadsheet className="w-4 h-4 mr-2" />
+                    Export as CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={exportToJSON} className="cursor-pointer">
+                    <FileJson className="w-4 h-4 mr-2" />
+                    Export as JSON
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

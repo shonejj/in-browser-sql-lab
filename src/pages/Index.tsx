@@ -3,12 +3,13 @@ import { DatabaseSidebar } from '@/components/DatabaseSidebar';
 import { QueryEditor } from '@/components/QueryEditor';
 import { ResultsTable } from '@/components/ResultsTable';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
+import { DataVisualization } from '@/components/DataVisualization';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { initDuckDB, executeQuery, getConnection, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
@@ -30,6 +31,7 @@ const Index = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [showVisualization, setShowVisualization] = useState(false);
 
   useEffect(() => {
     initializeDatabase();
@@ -398,10 +400,24 @@ const Index = () => {
                 <>
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-medium text-muted-foreground">Query results</div>
-                    <div className="text-xs text-muted-foreground">
-                      Showing {Math.min(cell.results.length, 100)} of {cell.results.length.toLocaleString()} rows
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={showVisualization ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setShowVisualization(!showVisualization)}
+                        className="h-7 px-2 gap-1.5"
+                      >
+                        <BarChart3 className="w-3 h-3" />
+                        <span className="text-xs">{showVisualization ? 'Hide' : 'Show'} Chart</span>
+                      </Button>
+                      <div className="text-xs text-muted-foreground">
+                        Showing {Math.min(cell.results.length, 50)} of {cell.results.length.toLocaleString()} rows
+                      </div>
                     </div>
                   </div>
+                  {showVisualization && (
+                    <DataVisualization data={cell.results} selectedColumn={selectedColumn} />
+                  )}
                   <ResultsTable data={cell.results} onColumnClick={setSelectedColumn} />
                 </>
               )}

@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from './ui/sheet';
 import { listNotebooks, createNotebook, deleteNotebook, getNotebook, saveNotebook, NotebookDoc } from '@/lib/notebooks';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, Download, Play } from 'lucide-react';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { toast } from 'sonner';
 import { executeQuery } from '@/lib/duckdb';
+import { saveAs } from 'file-saver';
 
 function NotebookEditor({ notebookId, onClose }: { notebookId: string, onClose: () => void }) {
   const [nb, setNb] = useState<NotebookDoc|null>(null);
@@ -66,23 +67,42 @@ function NotebookEditor({ notebookId, onClose }: { notebookId: string, onClose: 
     }
   };
 
+  const handleExportNotebook = () => {
+    const exportData = {
+      ...nb,
+      exported_at: new Date().toISOString(),
+      cells: nb.cells.map(cell => ({
+        ...cell,
+        output: outputs[cell.id]
+      }))
+    };
+    
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    saveAs(blob, `${nb.title.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.json`);
+    toast.success('Notebook exported successfully');
+  };
+
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-2 border-b">
         {editingTitle ? (
-          <form onSubmit={handleTitleSave} className="flex gap-2 items-center">
+          <form onSubmit={handleTitleSave} className="flex gap-2 items-center flex-1">
             <Input name="title" defaultValue={nb.title} className="text-lg font-bold" />
             <Button type="submit" size="sm">Save</Button>
           </form>
         ) : (
           <>
-            <span className="text-lg font-bold">{nb.title}</span>
-            <Button size="sm" variant="ghost" onClick={handleTitleEdit}>Edit</Button>
+            <span className="text-lg font-bold flex-1">{nb.title}</span>
+            <Button size="sm" variant="ghost" onClick={handleTitleEdit}>Edit Title</Button>
           </>
         )}
-        <div className="ml-auto">
-          <Button size="sm" variant="outline" onClick={onClose}>Close</Button>
-        </div>
+        <Button size="sm" variant="outline" onClick={handleExportNotebook}>
+          <Download className="w-3 h-3 mr-2" />
+          Export
+        </Button>
+        <Button size="sm" variant="outline" onClick={onClose}>Close</Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {nb.cells.length === 0 && <div className="text-muted-foreground">No cells. Add one below.</div>}
