@@ -79,11 +79,8 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
       const systemPrompt = `You are a helpful SQL assistant for DuckDB. Here are the available tables:\n\n${tableContext}\n\nGenerate only valid DuckDB SQL queries. Keep responses concise and provide working SQL code in a code block.`;
       
       let response: Response;
-      // Build messages with memory limit: include system prompt then last N non-system messages
-      const nonSystem = (arr: Message[]) => arr.filter(m => m.role !== 'system');
-      const currentNonSystem = nonSystem(prevMessages);
-      // take only the last `memoryLimit` messages prior to this turn
-      const history = currentNonSystem.slice(-memoryLimit);
+      // Build messages with memory limit: take only the last N messages prior to this turn
+      const history = prevMessages.slice(-memoryLimit);
       const messagesToSend = [
         { role: 'system', content: systemPrompt },
         ...history,

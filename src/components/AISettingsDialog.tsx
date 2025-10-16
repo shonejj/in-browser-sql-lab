@@ -15,7 +15,7 @@ interface AISettingsDialogProps {
 }
 
 export interface AIConfig {
-  provider: 'gemini' | 'custom';
+  provider: 'gemini' | 'openai' | 'claude' | 'groq' | 'grok' | 'custom';
   apiKey: string;
   baseUrl?: string;
   model: string;
@@ -27,6 +27,30 @@ const PROVIDER_CONFIGS = {
     baseUrl: 'https://generativelanguage.googleapis.com/v1',
     defaultModel: 'gemini-pro',
     models: ['gemini-pro', 'gemini-pro-vision']
+  },
+  openai: {
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo']
+  },
+  claude: {
+    name: 'Anthropic Claude',
+    baseUrl: 'https://api.anthropic.com/v1',
+    defaultModel: 'claude-sonnet-4-5',
+    models: ['claude-sonnet-4-5', 'claude-opus-4-1-20250805', 'claude-3-5-haiku-20241022']
+  },
+  groq: {
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    models: ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768']
+  },
+  grok: {
+    name: 'xAI Grok',
+    baseUrl: 'https://api.x.ai/v1',
+    defaultModel: 'grok-beta',
+    models: ['grok-beta', 'grok-vision-beta']
   },
   custom: {
     name: 'Custom (OpenAI-compatible)',
@@ -234,6 +258,10 @@ export function AISettingsDialog({ open, onOpenChange, onSave, currentConfig }: 
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="gemini">Google Gemini</SelectItem>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="claude">Anthropic Claude</SelectItem>
+                <SelectItem value="groq">Groq</SelectItem>
+                <SelectItem value="grok">xAI Grok</SelectItem>
                 <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
               </SelectContent>
             </Select>
