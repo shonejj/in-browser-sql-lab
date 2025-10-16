@@ -8,13 +8,21 @@ import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { initDuckDB, executeQuery, getConnection, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+
+interface QueryCell {
+  id: string;
+  query: string;
+  results: any[];
+  isExecuting: boolean;
+}
+
 const Index = () => {
-  const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<any[]>([]);
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [cells, setCells] = useState<QueryCell[]>([
+    { id: '1', query: initialQuery, results: [], isExecuting: false }
+  ]);
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string>();
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
@@ -79,32 +87,40 @@ const Index = () => {
       await refreshTables();
       
       // Auto-execute initial query
-      setTimeout(() => handleExecuteQuery(), 100);
+      setTimeout(() => handleExecuteQuery(cells[0].id), 100);
     } catch (error) {
       console.error('Failed to initialize database:', error);
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
     }
   }
 
-  async function handleExecuteQuery() {
+  async function handleExecuteQuery(cellId: string) {
     if (!isInitialized) {
       toast.error('Database is still initializing...');
       return;
     }
 
-    setIsExecuting(true);
+    const cell = cells.find(c => c.id === cellId);
+    if (!cell) return;
+
+    setCells(prev => prev.map(c => 
+      c.id === cellId ? { ...c, isExecuting: true } : c
+    ));
+
     const startTime = performance.now();
     
     try {
-      const result = await executeQuery(query);
+      const result = await executeQuery(cell.query);
       const executionTime = Math.round(performance.now() - startTime);
       
-      setResults(result);
+      setCells(prev => prev.map(c => 
+        c.id === cellId ? { ...c, results: result, isExecuting: false } : c
+      ));
       
       // Add to history
       setQueryHistory(prev => [...prev, {
         id: Date.now().toString(),
-        query,
+        query: cell.query,
         timestamp: new Date(),
         success: true,
         rowCount: result.length,
@@ -125,18 +141,46 @@ const Index = () => {
     } catch (error: any) {
       console.error('Query error:', error);
       
+      setCells(prev => prev.map(c => 
+        c.id === cellId ? { ...c, isExecuting: false } : c
+      ));
+      
       // Add failed query to history
       setQueryHistory(prev => [...prev, {
         id: Date.now().toString(),
-        query,
+        query: cell.query,
         timestamp: new Date(),
         success: false,
       }]);
       
       toast.error(error.message || 'Query execution failed');
-    } finally {
-      setIsExecuting(false);
     }
+  }
+
+  function handleAddCell() {
+    const newCell: QueryCell = {
+      id: Date.now().toString(),
+      query: '',
+      results: [],
+      isExecuting: false
+    };
+    setCells(prev => [...prev, newCell]);
+    toast.success('New query cell added');
+  }
+
+  function handleDeleteCell(cellId: string) {
+    if (cells.length === 1) {
+      toast.error('Cannot delete the last cell');
+      return;
+    }
+    setCells(prev => prev.filter(c => c.id !== cellId));
+    toast.success('Cell deleted');
+  }
+
+  function handleUpdateCellQuery(cellId: string, query: string) {
+    setCells(prev => prev.map(c => 
+      c.id === cellId ? { ...c, query } : c
+    ));
   }
 
   async function refreshTables() {
@@ -253,7 +297,16 @@ const Index = () => {
       {leftSidebarOpen && (
         <DatabaseSidebar 
           tables={tables} 
-          onTableClick={(name) => setQuery(`SELECT * FROM ${name};`)}
+          onTableClick={(name) => {
+            // Add query to a new cell
+            const newCell: QueryCell = {
+              id: Date.now().toString(),
+              query: `SELECT * FROM ${name};`,
+              results: [],
+              isExecuting: false
+            };
+            setCells(prev => [...prev, newCell]);
+          }}
           onImportCSV={handleImportCSV}
           onRefresh={refreshTables}
           onDeleteTable={handleDeleteTable}
@@ -297,9 +350,16 @@ const Index = () => {
                 <QueryHistory 
                   history={queryHistory}
                   onRunQuery={(q) => {
-                    setQuery(q);
+                    // Add query to a new cell
+                    const newCell: QueryCell = {
+                      id: Date.now().toString(),
+                      query: q,
+                      results: [],
+                      isExecuting: false
+                    };
+                    setCells(prev => [...prev, newCell]);
                     setHistoryOpen(false);
-                    setTimeout(() => handleExecuteQuery(), 100);
+                    setTimeout(() => handleExecuteQuery(newCell.id), 100);
                   }}
                   onClearHistory={() => setQueryHistory([])}
                 />
@@ -323,31 +383,47 @@ const Index = () => {
 
         {/* Query and Results */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <QueryEditor
-            query={query}
-            onQueryChange={setQuery}
-            onExecute={handleExecuteQuery}
-            isExecuting={isExecuting}
-          />
+          {cells.map((cell, index) => (
+            <div key={cell.id} className="space-y-4">
+              <QueryEditor
+                query={cell.query}
+                onQueryChange={(q) => handleUpdateCellQuery(cell.id, q)}
+                onExecute={() => handleExecuteQuery(cell.id)}
+                isExecuting={cell.isExecuting}
+                onDelete={() => handleDeleteCell(cell.id)}
+                showDelete={cells.length > 1}
+              />
 
-          {results.length > 0 && (
-            <>
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-medium text-muted-foreground">Query results</div>
-                <div className="text-xs text-muted-foreground">
-                  Showing {Math.min(results.length, 100)} of {results.length.toLocaleString()} rows
-                </div>
-              </div>
-              <ResultsTable data={results} onColumnClick={setSelectedColumn} />
-            </>
-          )}
+              {cell.results.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-medium text-muted-foreground">Query results</div>
+                    <div className="text-xs text-muted-foreground">
+                      Showing {Math.min(cell.results.length, 100)} of {cell.results.length.toLocaleString()} rows
+                    </div>
+                  </div>
+                  <ResultsTable data={cell.results} onColumnClick={setSelectedColumn} />
+                </>
+              )}
+            </div>
+          ))}
+
+          {/* Add Cell Button */}
+          <Button
+            onClick={handleAddCell}
+            variant="outline"
+            className="w-full border-dashed"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Query Cell
+          </Button>
         </div>
       </div>
 
       {/* Right Diagnostics Panel - Collapsible */}
       {rightSidebarOpen && (
         <ColumnDiagnostics 
-          data={results} 
+          data={cells.flatMap(c => c.results)} 
           selectedColumn={selectedColumn}
           onColumnSelect={setSelectedColumn}
         />
@@ -357,7 +433,14 @@ const Index = () => {
       <AIChatAssistant 
         tables={tables}
         onQuerySelect={(query) => {
-          setQuery(query);
+          // Add query to a new cell
+          const newCell: QueryCell = {
+            id: Date.now().toString(),
+            query,
+            results: [],
+            isExecuting: false
+          };
+          setCells(prev => [...prev, newCell]);
           toast.success('Query loaded from AI assistant');
         }}
       />
