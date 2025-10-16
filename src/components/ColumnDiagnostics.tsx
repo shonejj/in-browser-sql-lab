@@ -33,10 +33,10 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect }: Colu
   }, [data]);
 
   const categoryDistribution = useMemo(() => {
-    if (!selectedColumn || !columnStats) return null;
+    if (!selectedColumn || !columnStats || !columnStats[selectedColumn]) return null;
 
     const colData = columnStats[selectedColumn];
-    if (colData.type !== 'text') return null;
+    if (!colData || colData.type !== 'text') return null;
 
     const counts: Record<string, number> = {};
     colData.values.forEach((v: any) => {
@@ -58,10 +58,10 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect }: Colu
   }, [selectedColumn, columnStats]);
 
   const timeSeriesData = useMemo(() => {
-    if (!selectedColumn || !columnStats) return null;
+    if (!selectedColumn || !columnStats || !columnStats[selectedColumn]) return null;
 
     const colData = columnStats[selectedColumn];
-    if (colData.type !== 'date') return null;
+    if (!colData || colData.type !== 'date') return null;
 
     const dateCounts: Record<string, number> = {};
     colData.values.forEach((v: any) => {
