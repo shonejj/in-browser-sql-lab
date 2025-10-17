@@ -5,6 +5,8 @@ import { ResultsTable } from '@/components/ResultsTable';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { DataVisualization } from '@/components/DataVisualization';
 import { ChartBuilder } from '@/components/ChartBuilder';
+import { ExcelLikeTable } from '@/components/ExcelLikeTable';
+import { PivotTableBuilder } from '@/components/PivotTableBuilder';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { initDuckDB, executeQuery, getConnection, importCSVFile } from '@/lib/duckdb';
@@ -438,15 +440,32 @@ const Index = () => {
                     </div>
                   </div>
                   
-                  <Tabs defaultValue="table" className="w-full">
+                  <Tabs defaultValue="excel" className="w-full">
                     <TabsList className="mb-3">
-                      <TabsTrigger value="table">Table</TabsTrigger>
+                      <TabsTrigger value="excel">Excel View</TabsTrigger>
+                      <TabsTrigger value="table">Table View</TabsTrigger>
+                      <TabsTrigger value="pivot">Pivot Table</TabsTrigger>
                       <TabsTrigger value="quick-chart">Quick Chart</TabsTrigger>
                       <TabsTrigger value="chart-builder">Chart Builder</TabsTrigger>
                     </TabsList>
                     
+                    <TabsContent value="excel" className="h-[600px]">
+                      <ExcelLikeTable 
+                        data={cell.results} 
+                        onDataChange={(newData) => {
+                          setCells(prev => prev.map(c => 
+                            c.id === cell.id ? { ...c, results: newData } : c
+                          ));
+                        }}
+                      />
+                    </TabsContent>
+                    
                     <TabsContent value="table">
                       <ResultsTable data={cell.results} onColumnClick={setSelectedColumn} />
+                    </TabsContent>
+                    
+                    <TabsContent value="pivot">
+                      <PivotTableBuilder data={cell.results} />
                     </TabsContent>
                     
                     <TabsContent value="quick-chart">
