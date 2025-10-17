@@ -5,8 +5,6 @@ import { ResultsTable } from '@/components/ResultsTable';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { DataVisualization } from '@/components/DataVisualization';
 import { ChartBuilder } from '@/components/ChartBuilder';
-import { ExcelLikeTable } from '@/components/ExcelLikeTable';
-import { PivotTableBuilder } from '@/components/PivotTableBuilder';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { initDuckDB, executeQuery, getConnection, importCSVFile } from '@/lib/duckdb';
@@ -235,11 +233,9 @@ const Index = () => {
         await refreshTables();
         return;
       }
-      
-      // Protect table name
+      // protect table name
       const safeTable = String(tableName).replace(/"/g, '""');
-      
-      // Check if table already exists
+      // check if table already exists
       const existsRes = await executeQuery(`SELECT name FROM sqlite_master WHERE type='table' AND name='${safeTable}'`);
       if (existsRes && existsRes.length > 0) {
         if (opts?.overwrite) {
@@ -248,65 +244,35 @@ const Index = () => {
           throw new Error(`Table '${tableName}' already exists. Please delete it first or choose a different name.`);
         }
       }
-      
-      // Sanitize column names - remove empty strings, invalid characters, and ensure uniqueness
-      const sanitizedColumns = columns.map((col, idx) => {
-        // Handle empty or whitespace-only column names
-        let sanitized = col && col.trim() ? col.trim() : `column_${idx + 1}`;
-        
-        // Remove invalid characters and replace with underscore
-        sanitized = sanitized.replace(/[^a-zA-Z0-9_]/g, '_');
-        
-        // Ensure it doesn't start with a number
-        if (/^\d/.test(sanitized)) {
-          sanitized = 'col_' + sanitized;
-        }
-        
-        return sanitized;
-      });
-      
-      // Ensure unique column names
-      const uniqueColumns = sanitizedColumns.map((col, idx) => {
-        const duplicates = sanitizedColumns.slice(0, idx).filter(c => c === col);
-        return duplicates.length > 0 ? `${col}_${duplicates.length + 1}` : col;
-      });
-      
-      // Create column definitions with type inference
-      const columnDefs = uniqueColumns.map((col, idx) => {
+      // Create column definitions
+      const columnDefs = columns.map(col => {
         // Infer type from first non-null value
-        const originalCol = columns[idx];
-        const firstValue = data.find(row => row[originalCol] !== null && row[originalCol] !== undefined)?.[originalCol];
+        const firstValue = data.find(row => row[col] !== null && row[col] !== undefined)?.[col];
         let type = 'VARCHAR';
-        
         if (typeof firstValue === 'number') {
           type = Number.isInteger(firstValue) ? 'INTEGER' : 'DOUBLE';
         } else if (firstValue instanceof Date) {
           type = 'TIMESTAMP';
         }
-        
         return `"${col}" ${type}`;
       }).join(', ');
-      
       // Create table using executeQuery for consistent handling
       await executeQuery(`CREATE TABLE "${safeTable}" (${columnDefs})`);
-      
-      // Insert data in batches, mapping old column names to new ones
+      // Insert data in batches
       const batchSize = 1000;
       for (let i = 0; i < data.length; i += batchSize) {
         const batch = data.slice(i, i + batchSize);
         const values = batch.map(row => {
-          const vals = columns.map((originalCol, idx) => {
-            const val = row[originalCol];
+          const vals = columns.map(col => {
+            const val = row[col];
             if (val === null || val === undefined) return 'NULL';
             if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
             return val;
           }).join(', ');
           return `(${vals})`;
         }).join(', ');
-        
         await executeQuery(`INSERT INTO "${safeTable}" VALUES ${values}`);
       }
-      
       // Refresh tables list
       await refreshTables();
       toast.success(`Imported ${data.length} rows into ${tableName}`);
@@ -440,32 +406,15 @@ const Index = () => {
                     </div>
                   </div>
                   
-                  <Tabs defaultValue="excel" className="w-full">
+                  <Tabs defaultValue="table" className="w-full">
                     <TabsList className="mb-3">
-                      <TabsTrigger value="excel">Excel View</TabsTrigger>
-                      <TabsTrigger value="table">Table View</TabsTrigger>
-                      <TabsTrigger value="pivot">Pivot Table</TabsTrigger>
+                      <TabsTrigger value="table">Table</TabsTrigger>
                       <TabsTrigger value="quick-chart">Quick Chart</TabsTrigger>
                       <TabsTrigger value="chart-builder">Chart Builder</TabsTrigger>
                     </TabsList>
                     
-                    <TabsContent value="excel" className="h-[600px]">
-                      <ExcelLikeTable 
-                        data={cell.results} 
-                        onDataChange={(newData) => {
-                          setCells(prev => prev.map(c => 
-                            c.id === cell.id ? { ...c, results: newData } : c
-                          ));
-                        }}
-                      />
-                    </TabsContent>
-                    
                     <TabsContent value="table">
                       <ResultsTable data={cell.results} onColumnClick={setSelectedColumn} />
-                    </TabsContent>
-                    
-                    <TabsContent value="pivot">
-                      <PivotTableBuilder data={cell.results} />
                     </TabsContent>
                     
                     <TabsContent value="quick-chart">
