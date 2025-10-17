@@ -94,16 +94,43 @@ export async function importCSVFile(file: File, tableName: string, columns?: str
         if (!rows || rows.length === 0) return;
 
         if (!created) {
-          cols = Object.keys(rows[0]);
+          const rawCols = Object.keys(rows[0]);
+          
+          // Sanitize column names
+          cols = rawCols.map((col, idx) => {
+            // Handle empty or whitespace-only column names
+            let sanitized = col && col.trim() ? col.trim() : `column_${idx + 1}`;
+            
+            // Remove invalid characters and replace with underscore
+            sanitized = sanitized.replace(/[^a-zA-Z0-9_]/g, '_');
+            
+            // Ensure it doesn't start with a number
+            if (/^\d/.test(sanitized)) {
+              sanitized = 'col_' + sanitized;
+            }
+            
+            return sanitized;
+          });
+          
+          // Ensure unique column names
+          cols = cols.map((col, idx) => {
+            const duplicates = cols.slice(0, idx).filter(c => c === col);
+            return duplicates.length > 0 ? `${col}_${duplicates.length + 1}` : col;
+          });
+          
           const colDefs = cols.map(c => `"${c}" TEXT`).join(', ');
           insertPromises.push(connection.query(`CREATE TABLE IF NOT EXISTS "${safeName}" (${colDefs})`));
           created = true;
         }
 
-        // Build batched inserts
+        // Build batched inserts - map from original column names to sanitized ones
+        const rawCols = Object.keys(rows[0]);
         let batch: string[] = [];
         for (const r of rows) {
-          const vals = cols.map(c => (r[c] == null ? 'NULL' : `'${String(r[c]).replace(/'/g, "''")}'`)).join(',');
+          const vals = rawCols.map((originalCol, idx) => {
+            const val = r[originalCol];
+            return val == null ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`;
+          }).join(',');
           batch.push(`(${vals})`);
           if (batch.length >= batchSize) {
             const q = `INSERT INTO "${safeName}" (${cols.map(c=>`"${c}"`).join(',')}) VALUES ${batch.join(',')}`;
