@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Area, AreaChart } from 'recharts';
 import { Hash, Calendar, Type, Clock, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
+import { PerformanceMonitor } from './PerformanceMonitor';
 
 interface ColumnDiagnosticsProps {
   data: any[];
@@ -102,6 +103,9 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect }: Colu
 
   return (
     <div className="w-80 bg-panel border-l border-panel-border flex flex-col h-screen overflow-y-auto">
+      {/* Performance Monitor */}
+      <PerformanceMonitor />
+      
       {/* Header */}
       <div className="p-4 border-b border-panel-border sticky top-0 bg-panel">
         <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal mb-3">

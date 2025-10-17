@@ -71,15 +71,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
           <h1 className="font-semibold text-sm">DuckDB</h1>
         </div>
         
-        <Button 
-          variant="ghost" 
-          className="w-full justify-start text-xs font-normal h-8 text-sidebar-foreground hover:bg-sidebar-accent"
-          disabled
-          title="Notebooks feature coming soon"
-        >
-          <span>Notebooks</span>
-          <ChevronRight className="w-3 h-3 ml-auto" />
-        </Button>
+        <NotebookManager />
         
         <div className="mt-2 pl-4 text-xs text-sidebar-foreground/80">
           DuckDB UI basics

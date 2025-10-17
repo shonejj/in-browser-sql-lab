@@ -37,61 +37,52 @@ export function CSVImporter({ onImport }: CSVImporterProps) {
     setImporting(true);
     
     try {
-      // If file is large or importCSVFile helper supports efficient import, use that
-      const MAX_IN_MEMORY = 2 * 1024 * 1024; // 2MB threshold for client-side parse
+      // Always use client-side parsing with better error handling
+      const MAX_IN_MEMORY = 10 * 1024 * 1024; // 10MB threshold
+      
       if (file.size > MAX_IN_MEMORY) {
-        try {
-          await onImport(tableName, [file], [] as any, { overwrite });
-          toast.success(`Imported large file into table "${tableName}"`);
-          setOpen(false);
-          setFile(null);
-          setTableName('');
-        } catch (error: any) {
-          toast.error('Failed to import large CSV: ' + (error?.message || String(error)));
-        } finally {
-          setImporting(false);
-        }
-      } else {
-        const text = await file.text();
-        Papa.parse(text, {
-          header: true,
-          dynamicTyping: true,
-          skipEmptyLines: true,
-          complete: async (results) => {
-            if (results.errors.length > 0) {
-              toast.error('Error parsing CSV: ' + results.errors[0].message);
-              setImporting(false);
-              return;
-            }
+        toast.loading(`Processing large file (${(file.size / (1024 * 1024)).toFixed(1)} MB)...`, { id: 'csv-import' });
+      }
+      
+      const text = await file.text();
+      Papa.parse(text, {
+        header: true,
+        dynamicTyping: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          if (results.errors.length > 0) {
+            toast.error('Error parsing CSV: ' + results.errors[0].message, { id: 'csv-import' });
+            setImporting(false);
+            return;
+          }
 
-            if (results.data.length === 0) {
-              toast.error('CSV file is empty');
-              setImporting(false);
-              return;
-            }
+          if (results.data.length === 0) {
+            toast.error('CSV file is empty', { id: 'csv-import' });
+            setImporting(false);
+            return;
+          }
 
-            const columns = results.meta.fields || [];
-            
-            try {
-              await onImport(tableName, results.data, columns, { overwrite });
-              toast.success(`Imported ${results.data.length} rows into table "${tableName}"`);
-              setOpen(false);
-              setFile(null);
-              setTableName('');
-            } catch (error: any) {
-              toast.error('Failed to import: ' + error.message);
-            } finally {
-              setImporting(false);
-            }
-          },
-          error: (error) => {
-            toast.error('Failed to parse CSV: ' + error.message);
+          const columns = results.meta.fields || [];
+          
+          try {
+            await onImport(tableName, results.data, columns, { overwrite });
+            toast.success(`Imported ${results.data.length} rows into table "${tableName}"`, { id: 'csv-import' });
+            setOpen(false);
+            setFile(null);
+            setTableName('');
+          } catch (error: any) {
+            toast.error('Failed to import: ' + error.message, { id: 'csv-import' });
+          } finally {
             setImporting(false);
           }
-        });
-      }
+        },
+        error: (error) => {
+          toast.error('Failed to parse CSV: ' + error.message, { id: 'csv-import' });
+          setImporting(false);
+        }
+      });
     } catch (error: any) {
-      toast.error('Failed to read file: ' + error.message);
+      toast.error('Failed to read file: ' + error.message, { id: 'csv-import' });
       setImporting(false);
     }
   };

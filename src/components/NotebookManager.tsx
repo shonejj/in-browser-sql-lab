@@ -160,20 +160,25 @@ export function NotebookManager() {
   const [editorId, setEditorId] = useState<string|null>(null);
 
   useEffect(() => {
-    if (open) setNotebooks(listNotebooks());
+    if (open || !editorId) {
+      setNotebooks(listNotebooks());
+    }
   }, [open, editorId]);
 
   const handleCreate = () => {
     const title = prompt('Notebook title', 'Untitled') || 'Untitled';
-    createNotebook(title);
+    const nb = createNotebook(title);
     setNotebooks(listNotebooks());
+    setEditorId(nb.id);
+    toast.success(`Notebook "${title}" created`);
   };
 
   const handleDelete = (id: string) => {
-    const ok = confirm('Delete notebook?');
+    const ok = confirm('Delete notebook? This cannot be undone.');
     if (!ok) return;
     deleteNotebook(id);
     setNotebooks(listNotebooks());
+    toast.success('Notebook deleted');
   };
 
   const handleOpen = (id: string) => {
@@ -185,7 +190,12 @@ export function NotebookManager() {
   };
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={(newOpen) => {
+      setOpen(newOpen);
+      if (!newOpen) {
+        setEditorId(null);
+      }
+    }}>
       <SheetTrigger asChild>
         <Button variant="ghost" className="w-full justify-start text-xs font-normal h-8 text-sidebar-foreground hover:bg-sidebar-accent">
           <span>Notebooks</span>
@@ -196,10 +206,12 @@ export function NotebookManager() {
           <NotebookEditor notebookId={editorId} onClose={handleCloseEditor} />
         ) : (
           <>
-            <SheetHeader className="px-4 py-3 border-b flex items-center justify-between">
-              <SheetTitle>Notebooks</SheetTitle>
-              <div>
-                <Button onClick={handleCreate}><Plus className="w-3 h-3 mr-2"/> New</Button>
+            <SheetHeader className="px-4 py-3 border-b">
+              <div className="flex items-center justify-between w-full">
+                <SheetTitle>Notebooks</SheetTitle>
+                <Button onClick={handleCreate} size="sm">
+                  <Plus className="w-3 h-3 mr-2"/> New
+                </Button>
               </div>
             </SheetHeader>
             <div className="p-4">
@@ -208,8 +220,13 @@ export function NotebookManager() {
               ) : (
                 <div className="space-y-2">
                   {notebooks.map(nb => (
-                    <div key={nb.id} className="flex items-center justify-between">
-                      <div>{nb.title}</div>
+                    <div key={nb.id} className="flex items-center justify-between p-3 border rounded hover:bg-accent">
+                      <div className="flex-1">
+                        <div className="font-medium">{nb.title}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {nb.cells.length} cells • Updated {new Date(nb.updatedAt).toLocaleDateString()}
+                        </div>
+                      </div>
                       <div className="flex gap-2">
                         <Button variant="ghost" size="sm" onClick={() => handleOpen(nb.id)}>Open</Button>
                         <Button variant="ghost" size="sm" onClick={() => handleDelete(nb.id)}><Trash2 className="w-3 h-3" /></Button>
