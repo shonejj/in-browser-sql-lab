@@ -47,8 +47,8 @@ const Index = () => {
       
       await initDuckDB();
       
-      // Generate and insert sample data
-      const trainData = generateTrainData(10000);
+      // Generate smaller sample data for better performance (1000 rows instead of 10000)
+      const trainData = generateTrainData(1000);
       
       // Create trains table
       await executeQuery(`
@@ -65,7 +65,7 @@ const Index = () => {
       `);
 
       // Insert train data in batches
-      const batchSize = 1000;
+      const batchSize = 500;
       for (let i = 0; i < trainData.length; i += batchSize) {
         const batch = trainData.slice(i, i + batchSize);
         const values = batch.map(row => 
@@ -75,25 +75,25 @@ const Index = () => {
         await executeQuery(`INSERT INTO trains VALUES ${values}`);
       }
 
-      // Create NYC taxi trips table from remote CSV
+      // Create NYC taxi trips table from remote CSV (only if it doesn't exist)
       try {
-        await executeQuery(`
-          CREATE TABLE nyc_taxi_trips AS
-          SELECT *
-          FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
-        `);
+        const existingTables = await executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='nyc_taxi_trips'");
+        if (existingTables.length === 0) {
+          await executeQuery(`
+            CREATE TABLE nyc_taxi_trips AS
+            SELECT *
+            FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
+          `);
+        }
       } catch (error) {
         console.warn('Failed to load NYC taxi data:', error);
       }
 
       setIsInitialized(true);
-      toast.success('Database initialized with 10k sample records', { id: 'init' });
+      toast.success('Database initialized with sample data', { id: 'init' });
       
       // Update tables list
       await refreshTables();
-      
-      // Auto-execute initial query
-      setTimeout(() => handleExecuteQuery(cells[0].id), 100);
     } catch (error) {
       console.error('Failed to initialize database:', error);
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });

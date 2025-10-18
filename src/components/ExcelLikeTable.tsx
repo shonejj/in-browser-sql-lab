@@ -1,11 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Label } from './ui/label';
 import { 
-  Plus, Trash2, Download, Copy, Table2
+  Plus, Trash2, Download, Copy, Table2, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { executeQuery } from '@/lib/duckdb';
@@ -19,6 +19,8 @@ interface ExcelLikeTableProps {
 export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTableProps) {
   const [rows, setRows] = useState(data);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; colKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [showColumnDialog, setShowColumnDialog] = useState(false);
@@ -30,7 +32,17 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
 
   useEffect(() => {
     setRows(data);
+    setCurrentPage(0); // Reset to first page when data changes
   }, [data]);
+
+  // Paginated rows for performance
+  const paginatedRows = useMemo(() => {
+    const start = currentPage * pageSize;
+    const end = start + pageSize;
+    return rows.slice(start, end);
+  }, [rows, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(rows.length / pageSize);
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -39,10 +51,11 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     }
   }, [editingCell]);
 
-  const handleCellClick = (rowIdx: number, colKey: string) => {
-    const value = rows[rowIdx][colKey];
+  const handleCellClick = (pageRowIdx: number, colKey: string) => {
+    const actualRowIdx = currentPage * pageSize + pageRowIdx;
+    const value = rows[actualRowIdx][colKey];
     setEditValue(value !== null && value !== undefined ? String(value) : '');
-    setEditingCell({ rowIdx, colKey });
+    setEditingCell({ rowIdx: actualRowIdx, colKey });
   };
 
   const handleCellChange = useCallback(() => {
@@ -241,42 +254,86 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIdx) => (
-              <tr key={rowIdx} className={selectedRows.has(rowIdx) ? 'bg-accent/20' : 'hover:bg-muted/50'}>
-                <td className="border border-border p-0 text-center bg-muted/30">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4"
-                    checked={selectedRows.has(rowIdx)}
-                    onChange={(e) => handleRowSelect(rowIdx, e.target.checked)}
-                  />
-                </td>
-                {columns.map((col) => (
-                  <td 
-                    key={col}
-                    className="border border-border px-2 py-1 cursor-text min-w-[120px] max-w-[300px]"
-                    onClick={() => handleCellClick(rowIdx, col)}
-                  >
-                    {editingCell?.rowIdx === rowIdx && editingCell?.colKey === col ? (
-                      <Input
-                        ref={inputRef}
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={handleCellChange}
-                        onKeyDown={handleKeyDown}
-                        className="h-7 px-1 border-0 focus-visible:ring-1 focus-visible:ring-primary"
-                      />
-                    ) : (
-                      <div className="truncate h-7 flex items-center">
-                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
-                      </div>
-                    )}
+            {paginatedRows.map((row, pageRowIdx) => {
+              const actualRowIdx = currentPage * pageSize + pageRowIdx;
+              return (
+                <tr key={actualRowIdx} className={selectedRows.has(actualRowIdx) ? 'bg-accent/20' : 'hover:bg-muted/50'}>
+                  <td className="border border-border p-0 text-center bg-muted/30">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4"
+                      checked={selectedRows.has(actualRowIdx)}
+                      onChange={(e) => handleRowSelect(actualRowIdx, e.target.checked)}
+                    />
                   </td>
-                ))}
-              </tr>
-            ))}
+                  {columns.map((col) => (
+                    <td 
+                      key={col}
+                      className="border border-border px-2 py-1 cursor-text min-w-[120px] max-w-[300px]"
+                      onClick={() => handleCellClick(pageRowIdx, col)}
+                    >
+                      {editingCell?.rowIdx === actualRowIdx && editingCell?.colKey === col ? (
+                        <Input
+                          ref={inputRef}
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={handleCellChange}
+                          onKeyDown={handleKeyDown}
+                          className="h-7 px-1 border-0 focus-visible:ring-1 focus-visible:ring-primary"
+                        />
+                      ) : (
+                        <div className="truncate h-7 flex items-center">
+                          {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
+                        </div>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between p-2 border-t bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">Rows per page:</Label>
+          <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(0); }}>
+            <SelectTrigger className="h-7 w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+              <SelectItem value="250">250</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            Page {currentPage + 1} of {totalPages || 1} ({rows.length} total rows)
+          </span>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+            disabled={currentPage === 0}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+            disabled={currentPage >= totalPages - 1}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Add Column Dialog */}
