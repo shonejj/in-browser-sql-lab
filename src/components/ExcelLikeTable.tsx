@@ -65,53 +65,8 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
       sortable: true,
       editable: true,
       renderEditCell: TextEditor,
-      renderHeaderCell: (props) => (
-        <div className="flex items-center justify-between w-full px-2 gap-1">
-          <span className="font-medium truncate flex-1">{props.column.name}</span>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 w-5 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSortColumn(key);
-              }}
-            >
-              {sortColumns.find(s => s.columnKey === key)?.direction === 'DESC' ? (
-                <SortDesc className="w-3 h-3" />
-              ) : (
-                <SortAsc className="w-3 h-3" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 w-5 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditingColumn(key);
-                setRenameValue(key);
-              }}
-            >
-              <Edit2 className="w-3 h-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 w-5 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteColumn(key);
-              }}
-            >
-              <Trash2 className="w-3 h-3" />
-            </Button>
-          </div>
-        </div>
-      ),
     }));
-  }, [rows, sortColumns]);
+  }, [rows]);
 
   const handleSortColumn = (columnKey: string) => {
     const existing = sortColumns.find(s => s.columnKey === columnKey);
@@ -321,10 +276,20 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
           <Trash2 className="w-3 h-3 mr-1" />
           Delete ({selectedRows.size})
         </Button>
-        <Button size="sm" onClick={() => setShowColumnDialog(true)} variant="outline">
-          <Table2 className="w-3 h-3 mr-1" />
-          Add Column
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            size="sm" 
+            variant="ghost"
+            onClick={() => handleSortColumn(columns[0]?.key)}
+            disabled={columns.length === 0}
+          >
+            {sortColumns.length > 0 && sortColumns[0].direction === 'DESC' ? (
+              <SortDesc className="w-3 h-3" />
+            ) : (
+              <SortAsc className="w-3 h-3" />
+            )}
+          </Button>
+        </div>
         <div className="flex-1" />
         <Button size="sm" onClick={handleCopySelection} variant="ghost" disabled={selectedRows.size === 0}>
           <Copy className="w-3 h-3 mr-1" />
@@ -341,18 +306,27 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
 
       {/* Excel Grid */}
       <div className="flex-1 overflow-hidden">
-        <DataGrid
-          columns={columns}
-          rows={sortedRows}
-          onRowsChange={handleRowsChange}
-          selectedRows={selectedRows}
-          onSelectedRowsChange={setSelectedRows}
-          rowKeyGetter={(row) => sortedRows.indexOf(row)}
-          className="rdg-light fill-grid"
-          style={{ height: '100%' }}
-          rowHeight={35}
-          headerRowHeight={40}
-        />
+        {columns.length > 0 ? (
+          <DataGrid
+            columns={columns}
+            rows={sortedRows}
+            onRowsChange={handleRowsChange}
+            selectedRows={selectedRows}
+            onSelectedRowsChange={setSelectedRows}
+            rowKeyGetter={(row) => {
+              const idx = sortedRows.findIndex(r => r === row);
+              return idx >= 0 ? idx : Math.random();
+            }}
+            className="rdg-light fill-grid"
+            style={{ height: '100%' }}
+            rowHeight={35}
+            headerRowHeight={40}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-muted-foreground">
+            No data available
+          </div>
+        )}
       </div>
 
       {/* Add Column Dialog */}
