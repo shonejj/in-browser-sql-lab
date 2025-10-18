@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { DataGrid } from 'react-data-grid';
-import type { Column, RenderEditCellProps } from 'react-data-grid';
+import { DataGrid, type Column, type RenderEditCellProps } from 'react-data-grid';
 import 'react-data-grid/lib/styles.css';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
