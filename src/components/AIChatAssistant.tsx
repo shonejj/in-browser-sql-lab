@@ -15,9 +15,10 @@ interface Message {
 interface AIChatAssistantProps {
   tables: Array<{ name: string; columns: { name: string; type: string }[] }>;
   onQuerySelect: (query: string) => void;
+  renderTrigger?: (onClick: () => void) => React.ReactNode;
 }
 
-export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps) {
+export function AIChatAssistant({ tables, onQuerySelect, renderTrigger }: AIChatAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -234,6 +235,9 @@ export function AIChatAssistant({ tables, onQuerySelect }: AIChatAssistantProps)
   };
 
   if (!isOpen) {
+    if (renderTrigger) {
+      return <>{renderTrigger(() => setIsOpen(true))}</>;
+    }
     return (
       <Button
         onClick={() => setIsOpen(true)}

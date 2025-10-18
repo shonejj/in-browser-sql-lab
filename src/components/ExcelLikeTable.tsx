@@ -58,7 +58,7 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     setEditingCell({ rowIdx: actualRowIdx, colKey });
   };
 
-  const handleCellChange = useCallback(() => {
+  const handleCellChange = useCallback(async () => {
     if (!editingCell) return;
     
     const newRows = [...rows];
@@ -69,7 +69,16 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     setRows(newRows);
     onDataChange?.(newRows);
     setEditingCell(null);
-  }, [editingCell, editValue, rows, onDataChange]);
+    
+    if (tableName) {
+      try {
+        // Update database - would require row identifiers
+        toast.info('Database update not implemented - changes are in-memory only');
+      } catch (error: any) {
+        console.error('Failed to persist update:', error);
+      }
+    }
+  }, [editingCell, editValue, rows, onDataChange, tableName]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -98,29 +107,24 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
   };
 
   const handleAddRow = async () => {
-    if (!tableName) {
-      const newRow: any = {};
-      columns.forEach(col => {
-        newRow[col] = '';
-      });
-      const newRows = [...rows, newRow];
-      setRows(newRows);
-      onDataChange?.(newRows);
-      toast.success('Row added');
-      return;
-    }
-
-    try {
-      const cols = columns.join(', ');
-      const values = columns.map(() => 'NULL').join(', ');
-      await executeQuery(`INSERT INTO "${tableName}" (${cols}) VALUES (${values})`);
-      
-      const result = await executeQuery(`SELECT * FROM "${tableName}"`);
-      setRows(result);
-      onDataChange?.(result);
-      toast.success('Row added to database');
-    } catch (error: any) {
-      toast.error('Failed to add row: ' + error.message);
+    const newRow: any = {};
+    columns.forEach(col => {
+      newRow[col] = '';
+    });
+    const newRows = [...rows, newRow];
+    setRows(newRows);
+    onDataChange?.(newRows);
+    toast.success('Row added');
+    
+    if (tableName) {
+      try {
+        const cols = columns.join(', ');
+        const values = columns.map(() => 'NULL').join(', ');
+        await executeQuery(`INSERT INTO "${tableName}" (${cols}) VALUES (${values})`);
+        toast.success('Row saved to database');
+      } catch (error: any) {
+        console.error('Failed to persist row:', error);
+      }
     }
   };
 
@@ -135,6 +139,15 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     setSelectedRows(new Set());
     onDataChange?.(newRows);
     toast.success(`Deleted ${selectedRows.size} row(s)`);
+    
+    if (tableName) {
+      try {
+        // Delete from database - this would require row identifiers
+        toast.info('Database delete not implemented - changes are in-memory only');
+      } catch (error: any) {
+        console.error('Failed to persist deletion:', error);
+      }
+    }
   };
 
   const handleAddColumn = async () => {
@@ -203,52 +216,55 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 p-2 border-b bg-muted/50">
-        <Button size="sm" onClick={handleAddRow}>
-          <Plus className="w-3 h-3 mr-1" />
+      <div className="flex items-center gap-2 p-2 border-b bg-muted/30">
+        <Button size="sm" onClick={handleAddRow} variant="default">
+          <Plus className="w-3.5 h-3.5 mr-1" />
           Add Row
         </Button>
         <Button size="sm" onClick={handleDeleteRows} variant="outline" disabled={selectedRows.size === 0}>
-          <Trash2 className="w-3 h-3 mr-1" />
+          <Trash2 className="w-3.5 h-3.5 mr-1" />
           Delete ({selectedRows.size})
         </Button>
         <Button size="sm" onClick={() => setShowColumnDialog(true)} variant="outline">
-          <Table2 className="w-3 h-3 mr-1" />
+          <Table2 className="w-3.5 h-3.5 mr-1" />
           Add Column
         </Button>
         <div className="flex-1" />
         <Button size="sm" onClick={handleCopySelection} variant="ghost" disabled={selectedRows.size === 0}>
-          <Copy className="w-3 h-3 mr-1" />
+          <Copy className="w-3.5 h-3.5 mr-1" />
           Copy
         </Button>
         <Button size="sm" onClick={handleExportCSV} variant="ghost">
-          <Download className="w-3 h-3 mr-1" />
-          Export CSV
+          <Download className="w-3.5 h-3.5 mr-1" />
+          Export
         </Button>
-        <div className="text-xs text-muted-foreground">
-          {rows.length} rows × {columns.length} cols
+        <div className="text-xs font-medium text-muted-foreground px-2">
+          {rows.length.toLocaleString()} × {columns.length}
         </div>
       </div>
 
       {/* Excel-like Grid */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto bg-background">
         <table className="w-full border-collapse">
-          <thead className="sticky top-0 bg-muted z-10">
+          <thead className="sticky top-0 z-10">
             <tr>
-              <th className="border border-border p-0 w-12 bg-muted">
+              <th className="border border-border p-0 w-12 bg-muted font-semibold">
                 <input
                   type="checkbox"
-                  className="w-4 h-4"
+                  className="w-4 h-4 mx-auto block"
                   checked={selectedRows.size === rows.length && rows.length > 0}
                   onChange={(e) => handleSelectAll(e.target.checked)}
                 />
               </th>
-              {columns.map((col) => (
+              {columns.map((col, idx) => (
                 <th 
                   key={col} 
-                  className="border border-border px-3 py-2 text-left font-semibold text-sm bg-muted min-w-[120px]"
+                  className="border border-border px-3 py-2 text-left font-semibold text-xs bg-muted min-w-[150px] select-none"
                 >
-                  {col}
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground font-mono">{String.fromCharCode(65 + idx)}</span>
+                    <span className="font-medium">{col}</span>
+                  </div>
                 </th>
               ))}
             </tr>
@@ -257,19 +273,22 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
             {paginatedRows.map((row, pageRowIdx) => {
               const actualRowIdx = currentPage * pageSize + pageRowIdx;
               return (
-                <tr key={actualRowIdx} className={selectedRows.has(actualRowIdx) ? 'bg-accent/20' : 'hover:bg-muted/50'}>
-                  <td className="border border-border p-0 text-center bg-muted/30">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4"
-                      checked={selectedRows.has(actualRowIdx)}
-                      onChange={(e) => handleRowSelect(actualRowIdx, e.target.checked)}
-                    />
+                <tr key={actualRowIdx} className={selectedRows.has(actualRowIdx) ? 'bg-primary/10' : 'hover:bg-muted/30'}>
+                  <td className="border border-border p-0 text-center bg-muted/40 font-mono text-xs text-muted-foreground font-semibold">
+                    <div className="flex items-center justify-center h-full p-2">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 mr-1"
+                        checked={selectedRows.has(actualRowIdx)}
+                        onChange={(e) => handleRowSelect(actualRowIdx, e.target.checked)}
+                      />
+                      {actualRowIdx + 1}
+                    </div>
                   </td>
                   {columns.map((col) => (
                     <td 
                       key={col}
-                      className="border border-border px-2 py-1 cursor-text min-w-[120px] max-w-[300px]"
+                      className="border border-border px-2 py-1 cursor-cell min-w-[150px] max-w-[300px] bg-card hover:bg-accent/5 transition-colors"
                       onClick={() => handleCellClick(pageRowIdx, col)}
                     >
                       {editingCell?.rowIdx === actualRowIdx && editingCell?.colKey === col ? (
@@ -279,10 +298,10 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleCellChange}
                           onKeyDown={handleKeyDown}
-                          className="h-7 px-1 border-0 focus-visible:ring-1 focus-visible:ring-primary"
+                          className="h-8 px-2 text-sm border-2 border-primary focus-visible:ring-0 bg-background"
                         />
                       ) : (
-                        <div className="truncate h-7 flex items-center">
+                        <div className="truncate h-8 flex items-center text-sm px-1">
                           {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
                         </div>
                       )}

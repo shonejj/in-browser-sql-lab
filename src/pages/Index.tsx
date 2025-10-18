@@ -1,21 +1,15 @@
 import { useState, useEffect } from 'react';
 import { DatabaseSidebar } from '@/components/DatabaseSidebar';
-import { QueryEditor } from '@/components/QueryEditor';
-import { ResultsTable } from '@/components/ResultsTable';
+import { QueryCell } from '@/components/QueryCell';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
-import { DataVisualization } from '@/components/DataVisualization';
-import { ChartBuilder } from '@/components/ChartBuilder';
-import { ExcelLikeTable } from '@/components/ExcelLikeTable';
-import { PivotTableBuilder } from '@/components/PivotTableBuilder';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
-import { initDuckDB, executeQuery, getConnection, importCSVFile } from '@/lib/duckdb';
+import { initDuckDB, executeQuery, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, BarChart3 } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface QueryCell {
   id: string;
@@ -35,7 +29,6 @@ const Index = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
-  const [showVisualization, setShowVisualization] = useState(false);
 
   useEffect(() => {
     initializeDatabase();
@@ -374,6 +367,16 @@ const Index = () => {
           </div>
           
           <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={handleAddCell}
+              className="h-7 px-2 gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="text-xs">New Cell</span>
+            </Button>
+
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
@@ -404,6 +407,25 @@ const Index = () => {
               </SheetContent>
             </Sheet>
 
+            <AIChatAssistant 
+              tables={tables}
+              onQuerySelect={(query) => {
+                const newCell: QueryCell = {
+                  id: Date.now().toString(),
+                  query,
+                  results: [],
+                  isExecuting: false
+                };
+                setCells(prev => [...prev, newCell]);
+              }}
+              renderTrigger={(onClick) => (
+                <Button variant="ghost" size="sm" onClick={onClick} className="h-7 px-2 gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="text-xs">AI Assistant</span>
+                </Button>
+              )}
+            />
+
             <Button 
               variant="ghost" 
               size="icon"
@@ -421,102 +443,40 @@ const Index = () => {
 
         {/* Query and Results */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {cells.map((cell, index) => (
-            <div key={cell.id} className="space-y-4">
-              <QueryEditor
-                query={cell.query}
-                onQueryChange={(q) => handleUpdateCellQuery(cell.id, q)}
-                onExecute={() => handleExecuteQuery(cell.id)}
-                isExecuting={cell.isExecuting}
-                onDelete={() => handleDeleteCell(cell.id)}
-                showDelete={cells.length > 1}
-              />
-
-              {cell.results.length > 0 && (
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      Showing {Math.min(cell.results.length, 50)} of {cell.results.length.toLocaleString()} rows
-                    </div>
-                  </div>
-                  
-                  <Tabs defaultValue="excel" className="w-full">
-                    <TabsList className="mb-3">
-                      <TabsTrigger value="excel">Excel View</TabsTrigger>
-                      <TabsTrigger value="table">Table View</TabsTrigger>
-                      <TabsTrigger value="pivot">Pivot Table</TabsTrigger>
-                      <TabsTrigger value="quick-chart">Quick Chart</TabsTrigger>
-                      <TabsTrigger value="chart-builder">Chart Builder</TabsTrigger>
-                    </TabsList>
-                    
-                    <TabsContent value="excel" className="h-[600px]">
-                      <ExcelLikeTable 
-                        data={cell.results} 
-                        onDataChange={(newData) => {
-                          setCells(prev => prev.map(c => 
-                            c.id === cell.id ? { ...c, results: newData } : c
-                          ));
-                        }}
-                      />
-                    </TabsContent>
-                    
-                    <TabsContent value="table">
-                      <ResultsTable data={cell.results} onColumnClick={setSelectedColumn} />
-                    </TabsContent>
-                    
-                    <TabsContent value="pivot">
-                      <PivotTableBuilder data={cell.results} />
-                    </TabsContent>
-                    
-                    <TabsContent value="quick-chart">
-                      <DataVisualization data={cell.results} selectedColumn={selectedColumn} />
-                    </TabsContent>
-                    
-                    <TabsContent value="chart-builder">
-                      <ChartBuilder data={cell.results} />
-                    </TabsContent>
-                  </Tabs>
-                </>
-              )}
-            </div>
+          {cells.map((cell) => (
+            <QueryCell
+              key={cell.id}
+              id={cell.id}
+              query={cell.query}
+              results={cell.results}
+              isExecuting={cell.isExecuting}
+              onQueryChange={(q) => handleUpdateCellQuery(cell.id, q)}
+              onExecute={() => handleExecuteQuery(cell.id)}
+              onDelete={() => handleDeleteCell(cell.id)}
+              showDelete={cells.length > 1}
+              onDataChange={(newData) => {
+                setCells(prev => prev.map(c => 
+                  c.id === cell.id ? { ...c, results: newData } : c
+                ));
+              }}
+              onColumnClick={setSelectedColumn}
+            />
           ))}
-
-          {/* Add Cell Button */}
-          <Button
-            onClick={handleAddCell}
-            variant="outline"
-            className="w-full border-dashed"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Query Cell
-          </Button>
         </div>
       </div>
 
-      {/* Right Diagnostics Panel - Collapsible */}
+      {/* Right Sidebar - Diagnostics */}
       {rightSidebarOpen && (
-        <ColumnDiagnostics 
-          data={cells.flatMap(c => c.results)} 
-          selectedColumn={selectedColumn}
-          onColumnSelect={setSelectedColumn}
-        />
+        <div className="w-80 border-l border-border bg-card overflow-y-auto">
+          <div className="p-4 space-y-4">
+            <ColumnDiagnostics 
+              data={cells.find(c => c.results.length > 0)?.results || []}
+              selectedColumn={selectedColumn}
+              onColumnSelect={setSelectedColumn}
+            />
+          </div>
+        </div>
       )}
-
-      {/* AI Chat Assistant */}
-      <AIChatAssistant 
-        tables={tables}
-        onQuerySelect={(query) => {
-          // Add query to a new cell
-          const newCell: QueryCell = {
-            id: Date.now().toString(),
-            query,
-            results: [],
-            isExecuting: false
-          };
-          setCells(prev => [...prev, newCell]);
-          toast.success('Query loaded from AI assistant');
-        }}
-      />
     </div>
   );
 };
