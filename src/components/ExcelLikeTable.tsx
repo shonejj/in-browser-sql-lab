@@ -1,14 +1,11 @@
-import { useState, useMemo, useCallback } from 'react';
-import { DataGrid, type Column, type RenderEditCellProps } from 'react-data-grid';
-import 'react-data-grid/lib/styles.css';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Label } from './ui/label';
 import { 
-  Plus, Trash2, Edit2, Save, X, Download, Upload, 
-  SortAsc, SortDesc, Filter, Calculator, Table2, Copy
+  Plus, Trash2, Download, Copy, Table2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { executeQuery } from '@/lib/duckdb';
@@ -19,99 +16,79 @@ interface ExcelLikeTableProps {
   onDataChange?: (newData: any[]) => void;
 }
 
-function TextEditor({ row, column, onRowChange, onClose }: RenderEditCellProps<any>) {
-  const [value, setValue] = useState(row[column.key as string] ?? '');
-  
-  return (
-    <Input
-      className="h-full w-full border-0 rounded-none focus:ring-2 focus:ring-primary"
-      autoFocus
-      value={value}
-      onChange={(e) => {
-        setValue(e.target.value);
-        onRowChange({ ...row, [column.key]: e.target.value });
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
-          onClose(true);
-        } else if (e.key === 'Escape') {
-          onClose(false);
-        }
-      }}
-    />
-  );
-}
-
 export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTableProps) {
   const [rows, setRows] = useState(data);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const [sortColumns, setSortColumns] = useState<Array<{ columnKey: string; direction: 'ASC' | 'DESC' }>>([]);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [editingCell, setEditingCell] = useState<{ rowIdx: number; colKey: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
   const [showColumnDialog, setShowColumnDialog] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
   const [newColumnType, setNewColumnType] = useState('VARCHAR');
-  const [editingColumn, setEditingColumn] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Generate columns from data
-  const columns: Column<any>[] = useMemo(() => {
-    if (!rows.length) return [];
-    
-    const keys = Object.keys(rows[0]);
-    return keys.map(key => ({
-      key,
-      name: key,
-      resizable: true,
-      sortable: true,
-      editable: true,
-      renderEditCell: TextEditor,
-    }));
-  }, [rows]);
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
-  const handleSortColumn = (columnKey: string) => {
-    const existing = sortColumns.find(s => s.columnKey === columnKey);
-    let newSort;
-    
-    if (!existing) {
-      newSort = [...sortColumns, { columnKey, direction: 'ASC' as const }];
-    } else if (existing.direction === 'ASC') {
-      newSort = sortColumns.map(s => 
-        s.columnKey === columnKey ? { ...s, direction: 'DESC' as const } : s
-      );
-    } else {
-      newSort = sortColumns.filter(s => s.columnKey !== columnKey);
+  useEffect(() => {
+    setRows(data);
+  }, [data]);
+
+  useEffect(() => {
+    if (editingCell && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
     }
-    
-    setSortColumns(newSort);
+  }, [editingCell]);
+
+  const handleCellClick = (rowIdx: number, colKey: string) => {
+    const value = rows[rowIdx][colKey];
+    setEditValue(value !== null && value !== undefined ? String(value) : '');
+    setEditingCell({ rowIdx, colKey });
   };
 
-  const sortedRows = useMemo(() => {
-    if (!sortColumns.length) return rows;
+  const handleCellChange = useCallback(() => {
+    if (!editingCell) return;
     
-    return [...rows].sort((a, b) => {
-      for (const sort of sortColumns) {
-        const aVal = a[sort.columnKey];
-        const bVal = b[sort.columnKey];
-        
-        if (aVal === bVal) continue;
-        
-        const comparison = aVal < bVal ? -1 : 1;
-        return sort.direction === 'ASC' ? comparison : -comparison;
-      }
-      return 0;
-    });
-  }, [rows, sortColumns]);
-
-  const handleRowsChange = useCallback((newRows: any[]) => {
+    const newRows = [...rows];
+    newRows[editingCell.rowIdx] = {
+      ...newRows[editingCell.rowIdx],
+      [editingCell.colKey]: editValue
+    };
     setRows(newRows);
     onDataChange?.(newRows);
-  }, [onDataChange]);
+    setEditingCell(null);
+  }, [editingCell, editValue, rows, onDataChange]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleCellChange();
+    } else if (e.key === 'Escape') {
+      setEditingCell(null);
+    }
+  };
+
+  const handleRowSelect = (rowIdx: number, checked: boolean) => {
+    const newSelected = new Set(selectedRows);
+    if (checked) {
+      newSelected.add(rowIdx);
+    } else {
+      newSelected.delete(rowIdx);
+    }
+    setSelectedRows(newSelected);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedRows(new Set(rows.map((_, idx) => idx)));
+    } else {
+      setSelectedRows(new Set());
+    }
+  };
 
   const handleAddRow = async () => {
     if (!tableName) {
       const newRow: any = {};
       columns.forEach(col => {
-        newRow[col.key] = '';
+        newRow[col] = '';
       });
       const newRows = [...rows, newRow];
       setRows(newRows);
@@ -121,11 +98,10 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     }
 
     try {
-      const cols = columns.map(c => c.key).join(', ');
+      const cols = columns.join(', ');
       const values = columns.map(() => 'NULL').join(', ');
       await executeQuery(`INSERT INTO "${tableName}" (${cols}) VALUES (${values})`);
       
-      // Refresh data
       const result = await executeQuery(`SELECT * FROM "${tableName}"`);
       setRows(result);
       onDataChange?.(result);
@@ -177,63 +153,10 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     }
   };
 
-  const handleDeleteColumn = async (columnKey: string) => {
-    const confirm = window.confirm(`Delete column "${columnKey}"?`);
-    if (!confirm) return;
-
-    if (!tableName) {
-      const newRows = rows.map(row => {
-        const { [columnKey]: _, ...rest } = row;
-        return rest;
-      });
-      setRows(newRows);
-      onDataChange?.(newRows);
-      toast.success('Column deleted');
-      return;
-    }
-
-    try {
-      await executeQuery(`ALTER TABLE "${tableName}" DROP COLUMN "${columnKey}"`);
-      const result = await executeQuery(`SELECT * FROM "${tableName}"`);
-      setRows(result);
-      onDataChange?.(result);
-      toast.success('Column deleted from database');
-    } catch (error: any) {
-      toast.error('Failed to delete column: ' + error.message);
-    }
-  };
-
-  const handleRenameColumn = async () => {
-    if (!editingColumn || !renameValue.trim()) return;
-
-    if (!tableName) {
-      const newRows = rows.map(row => {
-        const { [editingColumn]: value, ...rest } = row;
-        return { ...rest, [renameValue]: value };
-      });
-      setRows(newRows);
-      onDataChange?.(newRows);
-      setEditingColumn(null);
-      toast.success('Column renamed');
-      return;
-    }
-
-    try {
-      await executeQuery(`ALTER TABLE "${tableName}" RENAME COLUMN "${editingColumn}" TO "${renameValue}"`);
-      const result = await executeQuery(`SELECT * FROM "${tableName}"`);
-      setRows(result);
-      onDataChange?.(result);
-      setEditingColumn(null);
-      toast.success('Column renamed in database');
-    } catch (error: any) {
-      toast.error('Failed to rename column: ' + error.message);
-    }
-  };
-
   const handleExportCSV = () => {
-    const headers = columns.map(c => c.key).join(',');
+    const headers = columns.join(',');
     const csvRows = rows.map(row => 
-      columns.map(c => JSON.stringify(row[c.key] ?? '')).join(',')
+      columns.map(c => JSON.stringify(row[c] ?? '')).join(',')
     );
     const csv = [headers, ...csvRows].join('\n');
     
@@ -254,9 +177,9 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
     }
 
     const selectedData = Array.from(selectedRows).map(idx => rows[idx]);
-    const headers = columns.map(c => c.key).join('\t');
+    const headers = columns.join('\t');
     const dataRows = selectedData.map(row => 
-      columns.map(c => row[c.key] ?? '').join('\t')
+      columns.map(c => row[c] ?? '').join('\t')
     );
     const text = [headers, ...dataRows].join('\n');
     
@@ -276,20 +199,10 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
           <Trash2 className="w-3 h-3 mr-1" />
           Delete ({selectedRows.size})
         </Button>
-        <div className="flex items-center gap-2">
-          <Button 
-            size="sm" 
-            variant="ghost"
-            onClick={() => handleSortColumn(columns[0]?.key)}
-            disabled={columns.length === 0}
-          >
-            {sortColumns.length > 0 && sortColumns[0].direction === 'DESC' ? (
-              <SortDesc className="w-3 h-3" />
-            ) : (
-              <SortAsc className="w-3 h-3" />
-            )}
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setShowColumnDialog(true)} variant="outline">
+          <Table2 className="w-3 h-3 mr-1" />
+          Add Column
+        </Button>
         <div className="flex-1" />
         <Button size="sm" onClick={handleCopySelection} variant="ghost" disabled={selectedRows.size === 0}>
           <Copy className="w-3 h-3 mr-1" />
@@ -304,29 +217,66 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
         </div>
       </div>
 
-      {/* Excel Grid */}
-      <div className="flex-1 overflow-hidden">
-        {columns.length > 0 ? (
-          <DataGrid
-            columns={columns}
-            rows={sortedRows}
-            onRowsChange={handleRowsChange}
-            selectedRows={selectedRows}
-            onSelectedRowsChange={setSelectedRows}
-            rowKeyGetter={(row) => {
-              const idx = sortedRows.findIndex(r => r === row);
-              return idx >= 0 ? idx : Math.random();
-            }}
-            className="rdg-light fill-grid"
-            style={{ height: '100%' }}
-            rowHeight={35}
-            headerRowHeight={40}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            No data available
-          </div>
-        )}
+      {/* Excel-like Grid */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse">
+          <thead className="sticky top-0 bg-muted z-10">
+            <tr>
+              <th className="border border-border p-0 w-12 bg-muted">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={selectedRows.size === rows.length && rows.length > 0}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                />
+              </th>
+              {columns.map((col) => (
+                <th 
+                  key={col} 
+                  className="border border-border px-3 py-2 text-left font-semibold text-sm bg-muted min-w-[120px]"
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIdx) => (
+              <tr key={rowIdx} className={selectedRows.has(rowIdx) ? 'bg-accent/20' : 'hover:bg-muted/50'}>
+                <td className="border border-border p-0 text-center bg-muted/30">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4"
+                    checked={selectedRows.has(rowIdx)}
+                    onChange={(e) => handleRowSelect(rowIdx, e.target.checked)}
+                  />
+                </td>
+                {columns.map((col) => (
+                  <td 
+                    key={col}
+                    className="border border-border px-2 py-1 cursor-text min-w-[120px] max-w-[300px]"
+                    onClick={() => handleCellClick(rowIdx, col)}
+                  >
+                    {editingCell?.rowIdx === rowIdx && editingCell?.colKey === col ? (
+                      <Input
+                        ref={inputRef}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={handleCellChange}
+                        onKeyDown={handleKeyDown}
+                        className="h-7 px-1 border-0 focus-visible:ring-1 focus-visible:ring-primary"
+                      />
+                    ) : (
+                      <div className="truncate h-7 flex items-center">
+                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
+                      </div>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Add Column Dialog */}
@@ -334,6 +284,9 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Column</DialogTitle>
+            <DialogDescription>
+              Add a new column to the table
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -364,30 +317,6 @@ export function ExcelLikeTable({ data, tableName, onDataChange }: ExcelLikeTable
             <div className="flex gap-2">
               <Button onClick={handleAddColumn} className="flex-1">Add Column</Button>
               <Button variant="outline" onClick={() => setShowColumnDialog(false)}>Cancel</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename Column Dialog */}
-      <Dialog open={!!editingColumn} onOpenChange={(open) => !open && setEditingColumn(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Column</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>New Name</Label>
-              <Input
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                placeholder="new_column_name"
-                className="mt-1"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleRenameColumn} className="flex-1">Rename</Button>
-              <Button variant="outline" onClick={() => setEditingColumn(null)}>Cancel</Button>
             </div>
           </div>
         </DialogContent>
