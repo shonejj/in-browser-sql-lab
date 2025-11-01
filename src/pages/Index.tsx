@@ -4,6 +4,7 @@ import { QueryCell } from '@/components/QueryCell';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
+import { TableDataEditor } from '@/components/TableDataEditor';
 import { initDuckDB, executeQuery, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
@@ -24,11 +25,13 @@ const Index = () => {
   ]);
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string>();
+  const [selectedCellId, setSelectedCellId] = useState<string>('1');
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
   const [tables, setTables] = useState<Array<{ name: string; rowCount: number; columns: any[] }>>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [editingTable, setEditingTable] = useState<string | null>(null);
 
   useEffect(() => {
     initializeDatabase();
@@ -102,6 +105,46 @@ const Index = () => {
     const cell = cells.find(c => c.id === cellId);
     if (!cell) return;
 
+    // Check if query is COPY command for CSV export
+    const copyMatch = cell.query.match(/COPY\s*\((.*?)\)\s*TO\s*['"](.+?)['"]/i);
+    if (copyMatch) {
+      try {
+        const innerQuery = copyMatch[1];
+        const fileName = copyMatch[2];
+        
+        // Execute the inner query
+        const result = await executeQuery(innerQuery);
+        
+        if (result.length === 0) {
+          toast.error('No data to export');
+          return;
+        }
+        
+        // Convert to CSV
+        const columns = Object.keys(result[0]);
+        const headers = columns.join(',');
+        const csvRows = result.map(row => 
+          columns.map(c => JSON.stringify(row[c] ?? '')).join(',')
+        );
+        const csv = [headers, ...csvRows].join('\n');
+        
+        // Download file
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        toast.success(`Exported ${result.length} rows to ${fileName}`);
+        return;
+      } catch (error: any) {
+        toast.error(`Export failed: ${error.message}`);
+        return;
+      }
+    }
+
     setCells(prev => prev.map(c => 
       c.id === cellId ? { ...c, isExecuting: true } : c
     ));
@@ -115,6 +158,9 @@ const Index = () => {
       setCells(prev => prev.map(c => 
         c.id === cellId ? { ...c, results: result, isExecuting: false } : c
       ));
+      
+      // Set this as the selected cell for diagnostics
+      setSelectedCellId(cellId);
       
       // Add to history
       setQueryHistory(prev => [...prev, {
@@ -216,7 +262,7 @@ const Index = () => {
     }
   }
 
-  async function handleImportCSV(tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean }) {
+  async function handleImportCSV(tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean, allVarchar?: boolean }) {
     try {
       // If data is a File passed for large import
       if (data && data.length === 1 && data[0] instanceof File) {
@@ -266,6 +312,11 @@ const Index = () => {
       
       // Create column definitions with type inference
       const columnDefs = uniqueColumns.map((col, idx) => {
+        // If allVarchar is true, force all columns to VARCHAR
+        if (opts?.allVarchar) {
+          return `"${col}" VARCHAR`;
+        }
+        
         // Infer type from first non-null value
         const originalCol = columns[idx];
         const firstValue = data.find(row => row[originalCol] !== null && row[originalCol] !== undefined)?.[originalCol];
@@ -341,6 +392,7 @@ const Index = () => {
           onImportCSV={handleImportCSV}
           onRefresh={refreshTables}
           onDeleteTable={handleDeleteTable}
+          onOpenInEditor={(tableName) => setEditingTable(tableName)}
         />
       )}
 
@@ -468,14 +520,26 @@ const Index = () => {
       {/* Right Sidebar - Diagnostics */}
       {rightSidebarOpen && (
         <div className="w-80 border-l border-border bg-card overflow-y-auto">
-          <div className="p-4 space-y-4">
-            <ColumnDiagnostics 
-              data={cells.find(c => c.results.length > 0)?.results || []}
-              selectedColumn={selectedColumn}
-              onColumnSelect={setSelectedColumn}
-            />
-          </div>
+          <ColumnDiagnostics 
+            data={cells.find(c => c.id === selectedCellId)?.results || []}
+            selectedColumn={selectedColumn}
+            onColumnSelect={setSelectedColumn}
+            cells={cells}
+            selectedCellId={selectedCellId}
+            onCellSelect={setSelectedCellId}
+          />
         </div>
+      )}
+      
+      {/* Table Editor Modal */}
+      {editingTable && (
+        <TableDataEditor 
+          tableName={editingTable}
+          onClose={() => {
+            setEditingTable(null);
+            refreshTables();
+          }}
+        />
       )}
     </div>
   );

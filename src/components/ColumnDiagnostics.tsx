@@ -3,14 +3,23 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Hash, Calendar, Type, Clock, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
 import { PerformanceMonitor } from './PerformanceMonitor';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 interface ColumnDiagnosticsProps {
   data: any[];
   selectedColumn?: string;
   onColumnSelect?: (column: string) => void;
+  cells?: Array<{ id: string; query: string; results: any[] }>;
+  selectedCellId?: string;
+  onCellSelect?: (cellId: string) => void;
 }
 
-export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect }: ColumnDiagnosticsProps) {
+export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells = [], selectedCellId, onCellSelect }: ColumnDiagnosticsProps) {
   const columnStats = useMemo(() => {
     if (data.length === 0) return null;
 
@@ -93,25 +102,59 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect }: Colu
     return <Type className="w-3 h-3" />;
   };
 
+  const cellsWithResults = cells.filter(c => c.results && c.results.length > 0);
+
   if (!columnStats) {
     return (
-      <div className="w-80 bg-panel border-l border-panel-border p-6 text-center text-muted-foreground text-sm">
+      <div className="p-6 text-center text-muted-foreground text-sm">
         Run a query to view column diagnostics
       </div>
     );
   }
 
   return (
-    <div className="w-80 bg-panel border-l border-panel-border flex flex-col h-screen overflow-y-auto">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Performance Monitor */}
       <PerformanceMonitor />
       
       {/* Header */}
-      <div className="p-4 border-b border-panel-border sticky top-0 bg-panel">
-        <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal mb-3">
-          <span>Current Cell</span>
-          <ChevronDown className="w-3 h-3" />
-        </Button>
+      <div className="p-4 border-b border-panel-border">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal mb-3">
+              <span className="truncate">
+                {selectedCellId && cells.find(c => c.id === selectedCellId)
+                  ? `Cell ${cells.findIndex(c => c.id === selectedCellId) + 1}`
+                  : 'Current Cell'}
+              </span>
+              <ChevronDown className="w-3 h-3 ml-2 shrink-0" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            {cellsWithResults.map((cell, idx) => (
+              <DropdownMenuItem
+                key={cell.id}
+                onClick={() => onCellSelect?.(cell.id)}
+                className="cursor-pointer"
+              >
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  <span className="text-sm font-medium">Cell {idx + 1}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {cell.query.substring(0, 40)}...
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {cell.results.length} rows
+                  </span>
+                </div>
+              </DropdownMenuItem>
+            ))}
+            {cellsWithResults.length === 0 && (
+              <DropdownMenuItem disabled>
+                No results to display
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         
         <div className="text-xs">
           <div className="font-semibold text-foreground">{data.length.toLocaleString()} Rows</div>

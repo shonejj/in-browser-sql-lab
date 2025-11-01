@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { QueryEditor } from './QueryEditor';
 import { ResultsTable } from './ResultsTable';
-import { ExcelLikeTable } from './ExcelLikeTable';
 import { PivotTableBuilder } from './PivotTableBuilder';
 import { ChartBuilder } from './ChartBuilder';
 import { DataVisualization } from './DataVisualization';
@@ -44,7 +43,7 @@ export function QueryCell({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [cellTitle, setCellTitle] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [currentView, setCurrentView] = useState<'table' | 'excel' | 'pivot' | 'chart' | 'quick-chart'>('table');
+  const [currentView, setCurrentView] = useState<'table' | 'pivot' | 'chart' | 'quick-chart'>('table');
 
   return (
     <Card className="overflow-hidden">
@@ -102,7 +101,7 @@ export function QueryCell({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Viewing: {currentView === 'table' ? 'Table View' : currentView === 'excel' ? 'Excel View' : currentView === 'pivot' ? 'Pivot Table' : currentView === 'chart' ? 'Chart Builder' : 'Quick Chart'}
+                  Viewing: {currentView === 'table' ? 'Table View' : currentView === 'pivot' ? 'Pivot Table' : currentView === 'chart' ? 'Chart Builder' : 'Quick Chart'}
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -114,10 +113,6 @@ export function QueryCell({
                     <DropdownMenuItem onClick={() => setCurrentView('table')} className="cursor-pointer">
                       <Table2 className="w-4 h-4 mr-2" />
                       Table View
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('excel')} className="cursor-pointer">
-                      <Table2 className="w-4 h-4 mr-2" />
-                      Excel View
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setCurrentView('pivot')} className="cursor-pointer">
                       <TableProperties className="w-4 h-4 mr-2" />
@@ -139,11 +134,6 @@ export function QueryCell({
               {currentView === 'table' && (
                 <ResultsTable data={results} onColumnClick={onColumnClick} />
               )}
-              {currentView === 'excel' && (
-                <div className="h-[600px]">
-                  <ExcelLikeTable data={results} onDataChange={onDataChange} />
-                </div>
-              )}
               {currentView === 'pivot' && (
                 <PivotTableBuilder data={results} />
               )}
@@ -151,7 +141,7 @@ export function QueryCell({
                 <ChartBuilder data={results} />
               )}
               {currentView === 'quick-chart' && (
-                <DataVisualization data={results} />
+                <DataVisualization data={results} selectedColumn={results.length > 0 ? Object.keys(results[0])[0] : undefined} />
               )}
             </div>
           )}

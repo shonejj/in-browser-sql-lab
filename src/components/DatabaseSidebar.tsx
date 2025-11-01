@@ -16,12 +16,13 @@ interface Column {
 interface DatabaseSidebarProps {
   tables: Array<{ name: string; rowCount: number; columns: Column[] }>;
   onTableClick: (tableName: string) => void;
-  onImportCSV: (tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean }) => Promise<void>;
+  onImportCSV: (tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean, allVarchar?: boolean }) => Promise<void>;
   onRefresh?: () => void;
   onDeleteTable?: (tableName: string) => void;
+  onOpenInEditor?: (tableName: string) => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(['trains']));
 
@@ -63,7 +64,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
   };
 
   return (
-    <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen border-r border-sidebar-border">
+    <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen border-r border-sidebar-border overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-2 mb-4">
@@ -120,53 +121,66 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                     <div className="flex items-center gap-1 w-full group">
                       <button
                         onClick={() => toggleTable(table.name)}
-                        className="flex items-center gap-1.5 px-2 py-1.5 flex-1 hover:bg-sidebar-accent rounded text-xs"
+                        className="flex items-center gap-1.5 px-2 py-1.5 flex-1 min-w-0 hover:bg-sidebar-accent rounded text-xs"
                       >
                         {expandedTables.has(table.name) ? (
-                          <ChevronDown className="w-3 h-3" />
+                          <ChevronDown className="w-3 h-3 shrink-0" />
                         ) : (
-                          <ChevronRight className="w-3 h-3" />
+                          <ChevronRight className="w-3 h-3 shrink-0" />
                         )}
-                        <Table2 className="w-3 h-3 text-sidebar-primary" />
-                        <span className="flex-1 text-left truncate" title={table.name}>{table.name}</span>
-                        <span className="text-xs text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70">
-                          {formatCount(table.rowCount)} rows
+                        <Table2 className="w-3 h-3 shrink-0 text-sidebar-primary" />
+                        <span className="flex-1 text-left truncate min-w-0" title={table.name}>{table.name}</span>
+                        <span className="text-xs text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0 ml-1">
+                          {formatCount(table.rowCount)}
                         </span>
                       </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                        onClick={() => {
-                          navigator.clipboard.writeText(table.name);
-                          toast.success(`Copied "${table.name}" to clipboard`);
-                        }}
-                        title="Copy table name"
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                        onClick={() => onTableClick(table.name)}
-                        title="Preview table"
-                      >
-                        <MoreHorizontal className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                        onClick={() => {
-                          if (!onDeleteTable) return;
-                          const ok = confirm(`Delete table "${table.name}"? This cannot be undone.`);
-                          if (ok) onDeleteTable(table.name);
-                        }}
-                        title="Delete table"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
+                      <div className="flex items-center opacity-0 group-hover:opacity-100 shrink-0">
+                        {onOpenInEditor && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => onOpenInEditor(table.name)}
+                            title="Open in Editor"
+                          >
+                            <MoreHorizontal className="w-3 h-3" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => {
+                            navigator.clipboard.writeText(table.name);
+                            toast.success(`Copied "${table.name}"`);
+                          }}
+                          title="Copy table name"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => onTableClick(table.name)}
+                          title="Preview table"
+                        >
+                          <BarChart3 className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => {
+                            if (!onDeleteTable) return;
+                            const ok = confirm(`Delete table "${table.name}"? This cannot be undone.`);
+                            if (ok) onDeleteTable(table.name);
+                          }}
+                          title="Delete table"
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
 
                     {expandedTables.has(table.name) && (
@@ -174,17 +188,17 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                         {table.columns.map((col) => (
                           <div
                             key={col.name}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-sidebar-accent rounded cursor-pointer group"
+                            className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-sidebar-accent rounded cursor-pointer group min-w-0"
                           >
-                            <span className="text-sidebar-foreground/60">{getColumnIcon(col.type)}</span>
-                            <span className="flex-1 text-sidebar-foreground/80">{col.name}</span>
+                            <span className="text-sidebar-foreground/60 shrink-0">{getColumnIcon(col.type)}</span>
+                            <span className="flex-1 text-sidebar-foreground/80 truncate min-w-0" title={col.name}>{col.name}</span>
                             {col.uniqueCount !== undefined && (
-                              <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70">
+                              <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0">
                                 {formatCount(col.uniqueCount)}
                               </span>
                             )}
                             {col.completeness !== undefined && col.completeness < 100 && (
-                              <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70">
+                              <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0">
                                 {col.completeness}%
                               </span>
                             )}
