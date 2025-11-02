@@ -11,9 +11,10 @@ import { toast } from 'sonner';
 
 interface CSVImporterProps {
   onImport: (tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean, allVarchar?: boolean }) => Promise<void>;
+  onImportComplete?: () => void;
 }
 
-export function CSVImporter({ onImport }: CSVImporterProps) {
+export function CSVImporter({ onImport, onImportComplete }: CSVImporterProps) {
   const [open, setOpen] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
   const [allVarchar, setAllVarchar] = useState(false);
@@ -89,6 +90,11 @@ export function CSVImporter({ onImport }: CSVImporterProps) {
         setFile(null);
         setTableName('');
         setImporting(false);
+        
+        // Refresh tables list
+        if (onImportComplete) {
+          onImportComplete();
+        }
         return;
       }
       
@@ -125,6 +131,11 @@ export function CSVImporter({ onImport }: CSVImporterProps) {
             setOpen(false);
             setFile(null);
             setTableName('');
+            
+            // Refresh tables list
+            if (onImportComplete) {
+              onImportComplete();
+            }
           } catch (error: any) {
             toast.error('Failed to import: ' + error.message, { id: 'csv-import' });
           } finally {

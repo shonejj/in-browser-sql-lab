@@ -5,6 +5,8 @@ import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { TableDataEditor } from '@/components/TableDataEditor';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { Footer } from '@/components/Footer';
 import { initDuckDB, executeQuery, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { toast } from 'sonner';
@@ -90,6 +92,10 @@ const Index = () => {
       
       // Update tables list
       await refreshTables();
+      
+      // Store table names globally for SQL autocomplete
+      const tablesResult = await executeQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      (window as any).__duckdb_tables__ = tablesResult.map((t: any) => t.name);
     } catch (error) {
       console.error('Failed to initialize database:', error);
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
@@ -257,6 +263,9 @@ const Index = () => {
       }
       
       setTables(tablesData);
+      
+      // Update global table list for SQL autocomplete
+      (window as any).__duckdb_tables__ = tablesData.map(t => t.name);
     } catch (error) {
       console.error('Failed to refresh tables:', error);
     }
@@ -393,6 +402,7 @@ const Index = () => {
           onRefresh={refreshTables}
           onDeleteTable={handleDeleteTable}
           onOpenInEditor={(tableName) => setEditingTable(tableName)}
+          onImportComplete={refreshTables}
         />
       )}
 
@@ -413,12 +423,13 @@ const Index = () => {
                 <PanelLeftOpen className="w-4 h-4" />
               )}
             </Button>
-            <div className="text-xs text-muted-foreground">
-              DuckDB Web Interface
+            <div className="text-sm font-semibold">
+              DuckDB Lab
             </div>
           </div>
           
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Button 
               variant="ghost" 
               size="sm"
@@ -494,7 +505,7 @@ const Index = () => {
         </div>
 
         {/* Query and Results */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-20">
           {cells.map((cell) => (
             <QueryCell
               key={cell.id}
@@ -515,6 +526,9 @@ const Index = () => {
             />
           ))}
         </div>
+        
+        {/* Footer */}
+        <Footer />
       </div>
 
       {/* Right Sidebar - Diagnostics */}

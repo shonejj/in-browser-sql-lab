@@ -3,8 +3,9 @@ import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHo
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { CSVImporter } from './CSVImporter';
+import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
+import { DuckDBFileAttacher } from './DuckDBFileAttacher';
 import { toast } from 'sonner';
-import NotebookManager from './NotebookManager';
 
 interface Column {
   name: string;
@@ -20,9 +21,10 @@ interface DatabaseSidebarProps {
   onRefresh?: () => void;
   onDeleteTable?: (tableName: string) => void;
   onOpenInEditor?: (tableName: string) => void;
+  onImportComplete?: () => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(['trains']));
 
@@ -69,13 +71,11 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-2 mb-4">
           <Database className="w-5 h-5 text-sidebar-primary" />
-          <h1 className="font-semibold text-sm">DuckDB</h1>
+          <h1 className="font-semibold text-sm">DuckDB Lab</h1>
         </div>
         
-        <NotebookManager />
-        
         <div className="mt-2 pl-4 text-xs text-sidebar-foreground/80">
-          DuckDB UI basics
+          Interactive SQL Workspace
         </div>
       </div>
 
@@ -216,7 +216,9 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
 
       {/* Footer Actions */}
       <div className="p-2 border-t border-sidebar-border flex gap-1">
-  <CSVImporter onImport={onImportCSV} />
+        <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
+        <DuckDBFileAttacher onAttach={onRefresh} />
+        <NotebookManagerEnhanced />
         {onRefresh && (
           <Button 
             variant="ghost" 

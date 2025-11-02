@@ -151,6 +151,108 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting, onDe
               value={query}
               onChange={(value) => onQueryChange(value || '')}
               onMount={(editor, monaco) => {
+                const tables = (window as any).__duckdb_tables__ || [];
+                const sqlKeywords = [
+                  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'AS',
+                  'GROUP', 'BY', 'ORDER', 'ASC', 'DESC', 'HAVING', 'LIMIT', 'OFFSET',
+                  'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE',
+                  'DROP', 'ALTER', 'ADD', 'COLUMN', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN',
+                  'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AND', 'OR', 'NOT', 'NULL', 'IS',
+                  'LIKE', 'IN', 'BETWEEN', 'EXISTS', 'ANY', 'ALL', 'UNION', 'INTERSECT', 'EXCEPT',
+                ];
+
+                // Enhanced SQL autocomplete with tables, columns, and snippets
+                monaco.languages.registerCompletionItemProvider('sql', {
+                  provideCompletionItems: (model, position) => {
+                    const word = model.getWordUntilPosition(position);
+                    const range = {
+                      startLineNumber: position.lineNumber,
+                      endLineNumber: position.lineNumber,
+                      startColumn: word.startColumn,
+                      endColumn: word.endColumn,
+                    };
+
+                    const suggestions: any[] = [
+                      // SQL Keywords
+                      ...sqlKeywords.map(keyword => ({
+                        label: keyword,
+                        kind: monaco.languages.CompletionItemKind.Keyword,
+                        insertText: keyword,
+                        range,
+                        sortText: '0' + keyword, // Prioritize keywords
+                      })),
+                      // Tables
+                      ...tables.map((table: string) => ({
+                        label: table,
+                        kind: monaco.languages.CompletionItemKind.Class,
+                        insertText: `"${table}"`,
+                        detail: 'Table',
+                        documentation: `Available table: ${table}`,
+                        range,
+                        sortText: '1' + table,
+                      })),
+                      // SQL Snippets
+                      {
+                        label: 'SELECT * FROM',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: 'SELECT * FROM "${1:table}"',
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        detail: 'Select all from table',
+                        documentation: 'SELECT * FROM "table"',
+                        range,
+                        sortText: '2select',
+                      },
+                      {
+                        label: 'INSERT INTO',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: 'INSERT INTO "${1:table}" (${2:columns}) VALUES (${3:values})',
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        detail: 'Insert into table',
+                        range,
+                        sortText: '2insert',
+                      },
+                      {
+                        label: 'UPDATE SET',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: 'UPDATE "${1:table}" SET ${2:column} = ${3:value} WHERE ${4:condition}',
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        detail: 'Update table',
+                        range,
+                        sortText: '2update',
+                      },
+                      {
+                        label: 'DELETE FROM',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: 'DELETE FROM "${1:table}" WHERE ${2:condition}',
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        detail: 'Delete from table',
+                        range,
+                        sortText: '2delete',
+                      },
+                      {
+                        label: 'CREATE TABLE',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: 'CREATE TABLE "${1:table_name}" (\n  ${2:id} INTEGER PRIMARY KEY,\n  ${3:column} VARCHAR\n)',
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        detail: 'Create new table',
+                        range,
+                        sortText: '2create',
+                      },
+                      {
+                        label: 'JOIN',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: 'JOIN "${1:table}" ON ${2:condition}',
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        detail: 'Join tables',
+                        range,
+                        sortText: '2join',
+                      },
+                    ];
+                    
+                    return { suggestions };
+                  },
+                });
+
                 // Add Ctrl+Enter keyboard shortcut
                 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
                   handleExecute();

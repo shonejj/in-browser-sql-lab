@@ -1,18 +1,38 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Button } from './ui/button';
-import { BarChart3, LineChart, PieChart, ScatterChart } from 'lucide-react';
+import { BarChart3, LineChart, PieChart, ScatterChart, Download, TrendingUp, Activity } from 'lucide-react';
 import { Card } from './ui/card';
+import { toast } from 'sonner';
 
 interface DataVisualizationProps {
   data: any[];
   selectedColumn?: string;
 }
 
-type ChartType = 'bar' | 'line' | 'pie' | 'scatter';
+type ChartType = 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'radar';
 
 export function DataVisualization({ data, selectedColumn }: DataVisualizationProps) {
   const [chartType, setChartType] = useState<ChartType>('bar');
+  const chartRef = useRef<any>(null);
+
+  const handleExportImage = () => {
+    if (chartRef.current) {
+      const echartsInstance = chartRef.current.getEchartsInstance();
+      const url = echartsInstance.getDataURL({
+        type: 'png',
+        pixelRatio: 2,
+        backgroundColor: '#fff'
+      });
+      
+      const link = document.createElement('a');
+      link.download = `chart-${selectedColumn}-${Date.now()}.png`;
+      link.href = url;
+      link.click();
+      
+      toast.success('Chart exported as image');
+    }
+  };
 
   const chartData = useMemo(() => {
     if (!data.length || !selectedColumn) return null;
@@ -105,6 +125,40 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           }]
         };
 
+      case 'area':
+        return {
+          tooltip: { trigger: 'axis' },
+          xAxis: {
+            type: 'category',
+            data: chartData.categories,
+            axisLabel: { rotate: 45, interval: 0 }
+          },
+          yAxis: { type: 'value' },
+          series: [{
+            type: 'line',
+            data: chartData.values,
+            smooth: true,
+            areaStyle: { opacity: 0.6 },
+            itemStyle: { color: baseColors[4] }
+          }]
+        };
+
+      case 'radar':
+        return {
+          tooltip: { trigger: 'item' },
+          radar: {
+            indicator: chartData.categories.slice(0, 8).map(cat => ({ name: cat, max: Math.max(...chartData.values) }))
+          },
+          series: [{
+            type: 'radar',
+            data: [{
+              value: chartData.values.slice(0, 8),
+              name: selectedColumn
+            }],
+            itemStyle: { color: baseColors[5] }
+          }]
+        };
+
       default:
         return {};
     }
@@ -128,13 +182,13 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button
           variant={chartType === 'bar' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setChartType('bar')}
         >
-          <BarChart3 className="w-4 h-4 mr-2" />
+          <BarChart3 className="w-4 h-4 mr-1" />
           Bar
         </Button>
         <Button
@@ -142,7 +196,7 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           size="sm"
           onClick={() => setChartType('line')}
         >
-          <LineChart className="w-4 h-4 mr-2" />
+          <LineChart className="w-4 h-4 mr-1" />
           Line
         </Button>
         <Button
@@ -150,7 +204,7 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           size="sm"
           onClick={() => setChartType('pie')}
         >
-          <PieChart className="w-4 h-4 mr-2" />
+          <PieChart className="w-4 h-4 mr-1" />
           Pie
         </Button>
         <Button
@@ -158,8 +212,33 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           size="sm"
           onClick={() => setChartType('scatter')}
         >
-          <ScatterChart className="w-4 h-4 mr-2" />
+          <ScatterChart className="w-4 h-4 mr-1" />
           Scatter
+        </Button>
+        <Button
+          variant={chartType === 'area' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setChartType('area')}
+        >
+          <TrendingUp className="w-4 h-4 mr-1" />
+          Area
+        </Button>
+        <Button
+          variant={chartType === 'radar' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setChartType('radar')}
+        >
+          <Activity className="w-4 h-4 mr-1" />
+          Radar
+        </Button>
+        <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleExportImage}
+        >
+          <Download className="w-4 h-4 mr-1" />
+          Export
         </Button>
       </div>
 
@@ -168,6 +247,7 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           {selectedColumn} - {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart
         </h3>
         <ReactECharts 
+          ref={chartRef}
           option={getChartOption()} 
           style={{ height: '400px' }}
           opts={{ renderer: 'svg' }}

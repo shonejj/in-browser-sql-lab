@@ -113,12 +113,12 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-auto">
       {/* Performance Monitor */}
       <PerformanceMonitor />
       
       {/* Header */}
-      <div className="p-4 border-b border-panel-border">
+      <div className="p-4 border-b border-panel-border flex-shrink-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal mb-3">
@@ -163,7 +163,7 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
       </div>
 
       {/* Column List */}
-      <div className="p-4 space-y-2">
+      <div className="p-4 space-y-2 flex-shrink-0">
         {Object.entries(columnStats).map(([col, stats]: [string, any]) => (
           <div
             key={col}
@@ -183,7 +183,7 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
 
       {/* Selected Column Details */}
       {selectedColumn && columnStats[selectedColumn] && (
-        <div className="p-4 border-t border-panel-border">
+        <div className="p-4 border-t border-panel-border flex-shrink-0">
           <div className="text-xs font-semibold mb-3">{selectedColumn}</div>
 
           {/* Category Distribution */}

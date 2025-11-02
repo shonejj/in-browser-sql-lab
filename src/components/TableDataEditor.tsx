@@ -16,6 +16,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { ConfirmDialog } from './ConfirmDialog';
+import { PromptDialog } from './PromptDialog';
 
 interface TableDataEditorProps {
   tableName: string;
@@ -39,6 +41,11 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
   const [newColumnType, setNewColumnType] = useState('VARCHAR');
   const [loading, setLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Confirmation dialogs
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDeleteColumn, setConfirmDeleteColumn] = useState<string | null>(null);
+  const [promptFilter, setPromptFilter] = useState<string | null>(null);
 
   // Load initial data
   useEffect(() => {
@@ -170,11 +177,6 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
   };
 
   const handleDeleteRows = async () => {
-    if (selectedRows.size === 0) {
-      toast.error('No rows selected');
-      return;
-    }
-
     try {
       // Delete each selected row
       for (const idx of Array.from(selectedRows)) {
@@ -214,18 +216,23 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
     }
   };
 
-  const handleDeleteColumn = async (column: string) => {
+  const handleDeleteColumn = async () => {
+    if (!confirmDeleteColumn) return;
+    
     if (columns.length === 1) {
       toast.error('Cannot delete the last column');
+      setConfirmDeleteColumn(null);
       return;
     }
 
     try {
-      await executeQuery(`ALTER TABLE "${tableName}" DROP COLUMN "${column}"`);
+      await executeQuery(`ALTER TABLE "${tableName}" DROP COLUMN "${confirmDeleteColumn}"`);
       toast.success('Column deleted');
       await loadTableData();
     } catch (error: any) {
       toast.error(`Failed to delete column: ${error.message}`);
+    } finally {
+      setConfirmDeleteColumn(null);
     }
   };
 
@@ -288,7 +295,12 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
               <Plus className="w-3.5 h-3.5 mr-1" />
               Add Row
             </Button>
-            <Button size="sm" onClick={handleDeleteRows} variant="outline" disabled={selectedRows.size === 0}>
+            <Button 
+              size="sm" 
+              onClick={() => selectedRows.size > 0 && setConfirmDelete(true)} 
+              variant="outline" 
+              disabled={selectedRows.size === 0}
+            >
               <Trash2 className="w-3.5 h-3.5 mr-1" />
               Delete ({selectedRows.size})
             </Button>
@@ -363,18 +375,11 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
                               <DropdownMenuItem onClick={() => handleSort(col)}>
                                 Sort {sortColumn === col && sortDirection === 'ASC' ? 'Desc' : 'Asc'}
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => {
-                                const value = prompt(`Filter ${col} contains:`);
-                                if (value !== null) handleFilter(col, value);
-                              }}>
+                              <DropdownMenuItem onClick={() => setPromptFilter(col)}>
                                 Filter...
                               </DropdownMenuItem>
                               <DropdownMenuItem 
-                                onClick={() => {
-                                  if (confirm(`Delete column "${col}"?`)) {
-                                    handleDeleteColumn(col);
-                                  }
-                                }}
+                                onClick={() => setConfirmDeleteColumn(col)}
                                 className="text-destructive"
                               >
                                 Delete Column
@@ -509,6 +514,40 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Confirmation Dialogs */}
+        <ConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          title="Delete Rows"
+          description={`Are you sure you want to delete ${selectedRows.size} row(s)? This action cannot be undone.`}
+          onConfirm={handleDeleteRows}
+          confirmText="Delete"
+          variant="destructive"
+        />
+
+        <ConfirmDialog
+          open={!!confirmDeleteColumn}
+          onOpenChange={(open) => !open && setConfirmDeleteColumn(null)}
+          title="Delete Column"
+          description={`Are you sure you want to delete column "${confirmDeleteColumn}"? This action cannot be undone.`}
+          onConfirm={handleDeleteColumn}
+          confirmText="Delete"
+          variant="destructive"
+        />
+
+        <PromptDialog
+          open={!!promptFilter}
+          onOpenChange={(open) => !open && setPromptFilter(null)}
+          title={`Filter ${promptFilter}`}
+          description="Enter value to filter by (partial match)"
+          placeholder="Filter value..."
+          onConfirm={(value) => {
+            if (promptFilter) {
+              handleFilter(promptFilter, value);
+            }
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
