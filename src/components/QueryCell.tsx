@@ -7,7 +7,7 @@ import { DataVisualization } from './DataVisualization';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
-import { ChevronDown, ChevronRight, MoreVertical, Table2, BarChart3, LineChart, TableProperties } from 'lucide-react';
+import { ChevronDown, ChevronRight, MoreVertical, Table2, BarChart3, LineChart, TableProperties, Edit } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +26,8 @@ interface QueryCellProps {
   showDelete: boolean;
   onDataChange?: (data: any[]) => void;
   onColumnClick?: (column: string) => void;
+  selectedColumn?: string;
+  onOpenTableEditor?: () => void;
 }
 
 export function QueryCell({
@@ -39,6 +41,8 @@ export function QueryCell({
   showDelete,
   onDataChange,
   onColumnClick,
+  selectedColumn,
+  onOpenTableEditor,
 }: QueryCellProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [cellTitle, setCellTitle] = useState('');
@@ -126,6 +130,12 @@ export function QueryCell({
                       <LineChart className="w-4 h-4 mr-2" />
                       Quick Chart
                     </DropdownMenuItem>
+                    {onOpenTableEditor && results.length > 0 && (
+                      <DropdownMenuItem onClick={onOpenTableEditor} className="cursor-pointer">
+                        <Edit className="w-4 h-4 mr-2" />
+                        Table Editor
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -141,7 +151,10 @@ export function QueryCell({
                 <ChartBuilder data={results} />
               )}
               {currentView === 'quick-chart' && (
-                <DataVisualization data={results} selectedColumn={results.length > 0 ? Object.keys(results[0])[0] : undefined} />
+                <DataVisualization 
+                  data={results} 
+                  selectedColumn={selectedColumn || (results.length > 0 ? Object.keys(results[0])[0] : undefined)} 
+                />
               )}
             </div>
           )}

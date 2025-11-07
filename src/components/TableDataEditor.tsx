@@ -56,8 +56,8 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
     try {
       setLoading(true);
       
-      // Build query with sorting and filtering
-      let query = `SELECT * FROM "${tableName}"`;
+      // Build query with sorting and filtering - include ROWID for updates
+      let query = `SELECT ROWID, * FROM "${tableName}"`;
       
       if (filterColumn && filterValue) {
         query += ` WHERE "${filterColumn}" LIKE '%${filterValue.replace(/'/g, "''")}%'`;
@@ -73,7 +73,7 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
       setRows(result);
       
       if (result.length > 0) {
-        setColumns(Object.keys(result[0]));
+        setColumns(Object.keys(result[0]).filter(k => k !== 'ROWID'));
       } else {
         // Get column names from table schema
         const schemaResult = await executeQuery(`PRAGMA table_info('${tableName}')`);
@@ -104,7 +104,13 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
     if (!editingCell) return;
     
     const row = rows[editingCell.rowIdx];
-    const oldValue = row[editingCell.colKey];
+    const rowid = row.ROWID;
+    
+    if (!rowid) {
+      toast.error('Cannot update row: ROWID not found');
+      setEditingCell(null);
+      return;
+    }
     
     // Update local state first
     const newRows = [...rows];
@@ -115,22 +121,14 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
     setRows(newRows);
     setEditingCell(null);
     
-    // Try to update database
+    // Try to update database using ROWID
     try {
-      // Build WHERE clause using all columns to identify the row
-      const whereConditions = columns.map(col => {
-        const val = row[col];
-        if (val === null || val === undefined) return `"${col}" IS NULL`;
-        if (typeof val === 'string') return `"${col}" = '${val.replace(/'/g, "''")}'`;
-        return `"${col}" = ${val}`;
-      }).join(' AND ');
-      
       const newValue = editValue === '' ? 'NULL' : 
                       typeof editValue === 'string' ? `'${editValue.replace(/'/g, "''")}'` : 
                       editValue;
       
       await executeQuery(
-        `UPDATE "${tableName}" SET "${editingCell.colKey}" = ${newValue} WHERE ${whereConditions}`
+        `UPDATE "${tableName}" SET "${editingCell.colKey}" = ${newValue} WHERE ROWID = ${rowid}`
       );
       
       toast.success('Cell updated');
@@ -140,7 +138,7 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
       // Revert local change
       await loadTableData();
     }
-  }, [editingCell, editValue, rows, columns, tableName]);
+  }, [editingCell, editValue, rows, tableName]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -178,20 +176,18 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
 
   const handleDeleteRows = async () => {
     try {
-      // Delete each selected row
+      // Delete each selected row using ROWID
       for (const idx of Array.from(selectedRows)) {
         const row = rows[idx];
-        const whereConditions = columns.map(col => {
-          const val = row[col];
-          if (val === null || val === undefined) return `"${col}" IS NULL`;
-          if (typeof val === 'string') return `"${col}" = '${val.replace(/'/g, "''")}'`;
-          return `"${col}" = ${val}`;
-        }).join(' AND ');
+        const rowid = row.ROWID;
         
-        await executeQuery(`DELETE FROM "${tableName}" WHERE ${whereConditions}`);
+        if (rowid) {
+          await executeQuery(`DELETE FROM "${tableName}" WHERE ROWID = ${rowid}`);
+        }
       }
       
       setSelectedRows(new Set());
+      setConfirmDelete(false);
       toast.success(`Deleted ${selectedRows.size} row(s)`);
       await loadTableData();
     } catch (error: any) {

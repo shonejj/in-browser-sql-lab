@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DatabaseSidebar } from '@/components/DatabaseSidebar';
 import { QueryCell } from '@/components/QueryCell';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
@@ -34,12 +34,18 @@ const Index = () => {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [editingTable, setEditingTable] = useState<string | null>(null);
+  const isInitializingRef = useRef(false);
 
   useEffect(() => {
-    initializeDatabase();
+    if (!isInitializingRef.current && !isInitialized) {
+      initializeDatabase();
+    }
   }, []);
 
   async function initializeDatabase() {
+    if (isInitializingRef.current || isInitialized) return;
+    
+    isInitializingRef.current = true;
     try {
       toast.loading('Initializing DuckDB...', { id: 'init' });
       
@@ -99,6 +105,8 @@ const Index = () => {
     } catch (error) {
       console.error('Failed to initialize database:', error);
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
+    } finally {
+      isInitializingRef.current = false;
     }
   }
 
@@ -522,7 +530,37 @@ const Index = () => {
                   c.id === cell.id ? { ...c, results: newData } : c
                 ));
               }}
-              onColumnClick={setSelectedColumn}
+              onColumnClick={(col) => {
+                setSelectedColumn(col);
+                setSelectedCellId(cell.id);
+              }}
+              selectedColumn={selectedCellId === cell.id ? selectedColumn : undefined}
+              onOpenTableEditor={() => {
+                // Create temporary table from results and open editor
+                const tempTableName = `_temp_results_${Date.now()}`;
+                if (cell.results.length > 0) {
+                  const cols = Object.keys(cell.results[0]);
+                  const colDefs = cols.map(c => `"${c}" VARCHAR`).join(', ');
+                  executeQuery(`CREATE TEMP TABLE "${tempTableName}" (${colDefs})`)
+                    .then(() => {
+                      const values = cell.results.map(row => 
+                        '(' + cols.map(c => {
+                          const val = row[c];
+                          if (val === null || val === undefined) return 'NULL';
+                          return `'${String(val).replace(/'/g, "''")}'`;
+                        }).join(',') + ')'
+                      ).join(',');
+                      return executeQuery(`INSERT INTO "${tempTableName}" VALUES ${values}`);
+                    })
+                    .then(() => {
+                      setEditingTable(tempTableName);
+                      toast.success('Created temporary table for editing');
+                    })
+                    .catch((err: any) => {
+                      toast.error(`Failed to create temp table: ${err.message}`);
+                    });
+                }
+              }}
             />
           ))}
         </div>
@@ -533,8 +571,8 @@ const Index = () => {
 
       {/* Right Sidebar - Diagnostics */}
       {rightSidebarOpen && (
-        <div className="w-80 border-l border-border bg-card overflow-y-auto">
-          <ColumnDiagnostics 
+        <div className="w-80 border-l border-border bg-card flex flex-col overflow-hidden">
+          <ColumnDiagnostics
             data={cells.find(c => c.id === selectedCellId)?.results || []}
             selectedColumn={selectedColumn}
             onColumnSelect={setSelectedColumn}

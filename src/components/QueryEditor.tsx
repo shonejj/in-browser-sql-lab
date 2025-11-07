@@ -153,12 +153,46 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting, onDe
               onMount={(editor, monaco) => {
                 const tables = (window as any).__duckdb_tables__ || [];
                 const sqlKeywords = [
-                  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'AS',
-                  'GROUP', 'BY', 'ORDER', 'ASC', 'DESC', 'HAVING', 'LIMIT', 'OFFSET',
-                  'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE', 'TABLE',
-                  'DROP', 'ALTER', 'ADD', 'COLUMN', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN',
-                  'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AND', 'OR', 'NOT', 'NULL', 'IS',
-                  'LIKE', 'IN', 'BETWEEN', 'EXISTS', 'ANY', 'ALL', 'UNION', 'INTERSECT', 'EXCEPT',
+                  // Basic Keywords
+                  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS', 'ON', 'AS',
+                  'GROUP', 'BY', 'ORDER', 'ASC', 'DESC', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'FIRST', 'NEXT', 'ROW', 'ROWS', 'ONLY',
+                  // DML
+                  'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'TRUNCATE', 'MERGE',
+                  // DDL
+                  'CREATE', 'TABLE', 'DROP', 'ALTER', 'ADD', 'COLUMN', 'INDEX', 'VIEW', 'SEQUENCE', 'DATABASE', 'SCHEMA',
+                  // Data Types
+                  'INTEGER', 'BIGINT', 'SMALLINT', 'TINYINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'NUMERIC',
+                  'VARCHAR', 'CHAR', 'TEXT', 'STRING', 'BOOLEAN', 'BOOL', 'DATE', 'TIMESTAMP', 'TIME', 'INTERVAL',
+                  'BLOB', 'JSON', 'UUID', 'ARRAY', 'LIST', 'STRUCT', 'MAP',
+                  // Functions & Operators
+                  'DISTINCT', 'ALL', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'STDDEV', 'VARIANCE',
+                  'CAST', 'CONVERT', 'COALESCE', 'NULLIF', 'IFNULL', 'NVL',
+                  // Conditional
+                  'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'IF', 'IIF',
+                  // Logical
+                  'AND', 'OR', 'NOT', 'XOR', 'IN', 'NOT IN', 'EXISTS', 'NOT EXISTS',
+                  // Comparison
+                  'NULL', 'IS', 'IS NOT', 'LIKE', 'ILIKE', 'SIMILAR TO', 'BETWEEN', 'ANY', 'ALL', 'SOME',
+                  // Set Operations
+                  'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT', 'MINUS',
+                  // Window Functions
+                  'OVER', 'PARTITION', 'RANGE', 'UNBOUNDED', 'PRECEDING', 'FOLLOWING', 'CURRENT',
+                  'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
+                  // String Functions
+                  'CONCAT', 'SUBSTRING', 'SUBSTR', 'LENGTH', 'UPPER', 'LOWER', 'TRIM', 'LTRIM', 'RTRIM',
+                  'REPLACE', 'SPLIT', 'REGEXP_MATCHES', 'REGEXP_REPLACE',
+                  // Date Functions
+                  'NOW', 'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'EXTRACT', 'DATE_PART',
+                  'DATE_TRUNC', 'DATE_ADD', 'DATE_SUB', 'DATEDIFF', 'DATEADD',
+                  // Aggregate Extensions
+                  'STRING_AGG', 'ARRAY_AGG', 'LIST', 'APPROX_COUNT_DISTINCT', 'MEDIAN', 'MODE', 'PERCENTILE',
+                  // DuckDB Specific
+                  'COPY', 'PRAGMA', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'ANALYZE', 'ATTACH', 'DETACH',
+                  'READ_CSV', 'READ_CSV_AUTO', 'READ_PARQUET', 'READ_JSON', 'WRITE_CSV',
+                  // Constraints
+                  'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES', 'UNIQUE', 'CHECK', 'DEFAULT', 'NOT NULL',
+                  // Other
+                  'TRUE', 'FALSE', 'WITH', 'RECURSIVE', 'USING', 'NATURAL', 'LATERAL', 'TABLESAMPLE',
                 ];
 
                 // Enhanced SQL autocomplete with tables, columns, and snippets

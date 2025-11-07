@@ -52,6 +52,13 @@ export async function getConnection() {
   return conn!;
 }
 
+export async function getDatabase() {
+  if (!db) {
+    await initDuckDB();
+  }
+  return db!;
+}
+
 export async function importCSVFile(file: File, tableName: string, columns?: string[]) {
   // Try to use DuckDB wasm file registration for efficient import
   const connection = await getConnection();

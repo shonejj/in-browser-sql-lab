@@ -91,9 +91,9 @@ export function CSVImporter({ onImport, onImportComplete }: CSVImporterProps) {
         setTableName('');
         setImporting(false);
         
-        // Refresh tables list
+        // Refresh tables list after ALL sheets are imported
         if (onImportComplete) {
-          onImportComplete();
+          await onImportComplete();
         }
         return;
       }

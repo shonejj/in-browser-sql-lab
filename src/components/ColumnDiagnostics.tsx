@@ -162,8 +162,10 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
         </div>
       </div>
 
-      {/* Column List */}
-      <div className="p-4 space-y-2 flex-shrink-0">
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Column List */}
+        <div className="p-4 space-y-2">
         {Object.entries(columnStats).map(([col, stats]: [string, any]) => (
           <div
             key={col}
@@ -179,11 +181,11 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
             )}
           </div>
         ))}
-      </div>
+        </div>
 
-      {/* Selected Column Details */}
-      {selectedColumn && columnStats[selectedColumn] && (
-        <div className="p-4 border-t border-panel-border flex-shrink-0">
+        {/* Selected Column Details */}
+        {selectedColumn && columnStats[selectedColumn] && (
+          <div className="p-4 border-t border-border">
           <div className="text-xs font-semibold mb-3">{selectedColumn}</div>
 
           {/* Category Distribution */}
@@ -263,8 +265,9 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
               <span className="font-medium">{columnStats[selectedColumn].uniqueCount.toLocaleString()}</span>
             </div>
           </div>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
