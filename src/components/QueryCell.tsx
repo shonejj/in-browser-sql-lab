@@ -7,13 +7,15 @@ import { DataVisualization } from './DataVisualization';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
-import { ChevronDown, ChevronRight, MoreVertical, Table2, BarChart3, LineChart, TableProperties, Edit } from 'lucide-react';
+import { ChevronDown, ChevronRight, MoreVertical, Table2, BarChart3, LineChart, TableProperties, Edit, Copy, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { toast } from 'sonner';
 
 interface QueryCellProps {
   id: string;
@@ -48,6 +50,16 @@ export function QueryCell({
   const [cellTitle, setCellTitle] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [currentView, setCurrentView] = useState<'table' | 'pivot' | 'chart' | 'quick-chart'>('table');
+
+  const handleCopyQuery = () => {
+    navigator.clipboard.writeText(query);
+    toast.success('Query copied to clipboard');
+  };
+
+  const handleClearQuery = () => {
+    onQueryChange('');
+    toast.success('Query cleared');
+  };
 
   return (
     <Card className="overflow-hidden">
@@ -85,6 +97,34 @@ export function QueryCell({
             </span>
           )}
         </div>
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 bg-popover z-50">
+              <DropdownMenuItem onClick={handleCopyQuery} className="cursor-pointer">
+                <Copy className="w-4 h-4 mr-2" />
+                Copy Query
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleClearQuery} className="cursor-pointer">
+                <Trash2 className="w-4 h-4 mr-2" />
+                Clear Query
+              </DropdownMenuItem>
+              {showDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={onDelete} className="cursor-pointer text-destructive">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Cell
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* Collapsible Content */}
@@ -96,8 +136,6 @@ export function QueryCell({
             onQueryChange={onQueryChange}
             onExecute={onExecute}
             isExecuting={isExecuting}
-            onDelete={onDelete}
-            showDelete={showDelete}
           />
 
           {/* Results Section - Also Collapsible */}

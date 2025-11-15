@@ -1,30 +1,22 @@
 import { useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, Maximize2, MoreVertical, AlertCircle, Lightbulb, ChevronDown, ChevronRight, Copy, Trash2 } from 'lucide-react';
+import { Play, ChevronDown, ChevronRight, AlertCircle, Lightbulb } from 'lucide-react';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { validateSQL } from '@/lib/queryValidator';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
-import { toast } from 'sonner';
+import { useTheme } from 'next-themes';
 
 interface QueryEditorProps {
   query: string;
   onQueryChange: (query: string) => void;
   onExecute: () => void;
   isExecuting: boolean;
-  onDelete?: () => void;
-  showDelete?: boolean;
 }
 
-export function QueryEditor({ query, onQueryChange, onExecute, isExecuting, onDelete, showDelete = false }: QueryEditorProps) {
+export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: QueryEditorProps) {
   const [validation, setValidation] = useState<ReturnType<typeof validateSQL> | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { theme } = useTheme();
 
   useEffect(() => {
     if (query.trim()) {
@@ -51,15 +43,6 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting, onDe
     }
   };
 
-  const handleCopyQuery = () => {
-    navigator.clipboard.writeText(query);
-    toast.success('Query copied to clipboard');
-  };
-
-  const handleClearQuery = () => {
-    onQueryChange('');
-    toast.success('Query cleared');
-  };
 
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-card">
@@ -84,34 +67,6 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting, onDe
             <span className="text-xs font-medium">{isExecuting ? 'Running...' : 'Run'}</span>
           </Button>
           <span className="text-xs text-muted-foreground">SQL Query</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7">
-                <MoreVertical className="w-3.5 h-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48 bg-popover z-50">
-              <DropdownMenuItem onClick={handleCopyQuery} className="cursor-pointer">
-                <Copy className="w-4 h-4 mr-2" />
-                Copy Query
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleClearQuery} className="cursor-pointer">
-                <Trash2 className="w-4 h-4 mr-2" />
-                Clear Query
-              </DropdownMenuItem>
-              {showDelete && onDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={onDelete} className="cursor-pointer text-destructive">
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Cell
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
