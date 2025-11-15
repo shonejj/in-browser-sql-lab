@@ -3,8 +3,9 @@ import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHo
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { CSVImporter } from './CSVImporter';
-import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
 import { DuckDBFileAttacher } from './DuckDBFileAttacher';
+import { DatabaseConnector } from './DatabaseConnector';
+import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
 import { toast } from 'sonner';
 
 interface Column {
@@ -218,6 +219,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
       <div className="p-2 border-t border-sidebar-border flex gap-1">
         <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
         <DuckDBFileAttacher onAttach={onRefresh} />
+        <DatabaseConnector onImportComplete={onImportComplete} />
         <NotebookManagerEnhanced />
         {onRefresh && (
           <Button 

@@ -8,6 +8,7 @@ import {
   createNotebook, 
   deleteNotebook, 
   getNotebook,
+  saveNotebook,
   type NotebookDoc 
 } from '@/lib/notebooks';
 import { toast } from 'sonner';
@@ -96,18 +97,10 @@ export function NotebookManagerEnhanced({ onNotebookSelect }: NotebookManagerEnh
         nbs.forEach((nb: any) => {
           // Regenerate ID to avoid conflicts
           const newNb = createNotebook(nb.title || 'Imported Notebook');
-          // Update with imported cells
-          const existing = getNotebook(newNb.id);
-          if (existing) {
-            existing.cells = nb.cells || [];
-            // Save via localstorage
-            localStorage.setItem(
-              'sqllab:notebooks:v1',
-              JSON.stringify(
-                listNotebooks().map(n => n.id === newNb.id ? existing : n)
-              )
-            );
-          }
+          // Update with imported cells using saveNotebook
+          newNb.cells = nb.cells || [];
+          const { saveNotebook } = require('@/lib/notebooks');
+          saveNotebook(newNb);
         });
 
         toast.success(`Imported ${nbs.length} notebook(s)`);
