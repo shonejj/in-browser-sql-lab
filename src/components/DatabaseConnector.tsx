@@ -41,6 +41,42 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
   const [availableTables, setAvailableTables] = useState<string[]>([]);
   const [connectionStep, setConnectionStep] = useState<'config' | 'select' | 'importing'>('config');
 
+  // Sample database connections for testing
+  const sampleConnections = {
+    mysql: {
+      name: 'Sample MySQL (Chinook)',
+      host: 'mysql-rfam-public.ebi.ac.uk',
+      port: '4497',
+      database: 'Rfam',
+      username: 'rfamro',
+      password: '',
+      note: 'Public Rfam database from EBI'
+    },
+    postgresql: {
+      name: 'Sample PostgreSQL',
+      host: 'demo.enterprisedb.com',
+      port: '5432',
+      database: 'postgres',
+      username: 'enterprisedb',
+      password: 'PostgreSQL123',
+      note: 'EnterpriseDB demo database (may have limited access)'
+    }
+  };
+
+  const loadSampleConnection = (type: 'mysql' | 'postgresql') => {
+    const sample = sampleConnections[type];
+    setConfig({
+      type,
+      host: sample.host,
+      port: sample.port,
+      database: sample.database,
+      username: sample.username,
+      password: sample.password,
+    });
+    setConnectionType(type);
+    toast.info(`Loaded ${sample.name}. Click Connect to test.`);
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -284,6 +320,27 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
                 </TabsContent>
 
                 <TabsContent value="mysql" className="space-y-4">
+                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex gap-2">
+                        <Database className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-blue-900 dark:text-blue-100">Try a Sample Connection</p>
+                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
+                            {sampleConnections.mysql.note}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => loadSampleConnection('mysql')}
+                        className="shrink-0"
+                      >
+                        Load Sample
+                      </Button>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Host</Label>
@@ -338,6 +395,27 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
                 </TabsContent>
 
                 <TabsContent value="postgresql" className="space-y-4">
+                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex gap-2">
+                        <Database className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-blue-900 dark:text-blue-100">Try a Sample Connection</p>
+                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
+                            {sampleConnections.postgresql.note}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => loadSampleConnection('postgresql')}
+                        className="shrink-0"
+                      >
+                        Load Sample
+                      </Button>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Host</Label>
