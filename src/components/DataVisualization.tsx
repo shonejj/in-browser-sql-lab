@@ -247,6 +247,7 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           {selectedColumn} - {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart
         </h3>
         <ReactECharts 
+          key={chartType}
           ref={chartRef}
           option={getChartOption()} 
           style={{ height: '400px' }}

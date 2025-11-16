@@ -7,8 +7,10 @@ import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { TableDataEditor } from '@/components/TableDataEditor';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
+import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
 import { initDuckDB, executeQuery, importCSVFile } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
+import { getNotebook, saveNotebook, type NotebookDoc } from '@/lib/notebooks';
 import { toast } from 'sonner';
 import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -34,6 +36,7 @@ const Index = () => {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [editingTable, setEditingTable] = useState<string | null>(null);
+  const [currentNotebook, setCurrentNotebook] = useState<NotebookDoc | null>(null);
   const isInitializingRef = useRef(false);
 
   useEffect(() => {
@@ -240,6 +243,57 @@ const Index = () => {
     setCells(prev => prev.map(c => 
       c.id === cellId ? { ...c, query } : c
     ));
+  }
+
+  function handleNotebookSelect(notebookId: string) {
+    const notebook = getNotebook(notebookId);
+    if (!notebook) {
+      toast.error('Notebook not found');
+      return;
+    }
+
+    // Load notebook cells
+    const queryCells = notebook.cells
+      .filter(cell => cell.type === 'code')
+      .map((cell, index) => ({
+        id: `${Date.now()}_${index}`,
+        query: cell.content,
+        results: [],
+        isExecuting: false
+      }));
+
+    if (queryCells.length === 0) {
+      queryCells.push({
+        id: Date.now().toString(),
+        query: '',
+        results: [],
+        isExecuting: false
+      });
+    }
+
+    setCells(queryCells);
+    setCurrentNotebook(notebook);
+    toast.success(`Opened notebook: ${notebook.title}`);
+  }
+
+  function handleSaveNotebook() {
+    if (!currentNotebook) {
+      toast.error('No notebook is currently open');
+      return;
+    }
+
+    const updatedNotebook: NotebookDoc = {
+      ...currentNotebook,
+      cells: cells.map(cell => ({
+        id: cell.id,
+        type: 'code' as const,
+        content: cell.query
+      }))
+    };
+
+    saveNotebook(updatedNotebook);
+    setCurrentNotebook(updatedNotebook);
+    toast.success('Notebook saved');
   }
 
   async function refreshTables() {
@@ -496,6 +550,19 @@ const Index = () => {
                 </Button>
               )}
             />
+
+            <NotebookManagerEnhanced onNotebookSelect={handleNotebookSelect} />
+
+            {currentNotebook && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={handleSaveNotebook}
+                className="h-7 px-2 gap-1.5"
+              >
+                <span className="text-xs">Save: {currentNotebook.title}</span>
+              </Button>
+            )}
 
             <Button 
               variant="ghost" 
