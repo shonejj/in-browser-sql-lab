@@ -106,122 +106,77 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
 
     try {
       const conn = await getConnection();
+      const db = await (await import('@/lib/duckdb')).getDatabase();
       const arrayBuffer = await config.file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       
-      // Register the file buffer
       const fileName = config.file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
-      await (conn as any).insertArrowFromIPCStream?.(uint8Array, {
-        name: fileName,
-      }).catch(() => {
-        // Fallback if insertArrowFromIPCStream doesn't exist
-        toast.info('Using alternative import method...');
-      });
-
-      // Try to read schema from the DuckDB file
-      // DuckDB files can be attached using ATTACH
-      const dbPath = `/tmp/${fileName}`;
+      const dbPath = `/${fileName}`;
       
-      // Register file using DuckDB's file API if available
-      if ((conn as any).registerFileBuffer) {
-        await (conn as any).registerFileBuffer(dbPath, uint8Array);
-      }
-
-      // Try to get tables from the attached database
+      // Register the file with DuckDB WASM
+      await db.registerFileBuffer(dbPath, uint8Array);
+      
+      // Try to attach the database
       try {
-        const tables = await executeQuery(`
-          SELECT name FROM pragma_database_list() 
-          WHERE name != 'memory' AND name != 'temp'
-        `);
+        await executeQuery(`ATTACH '${dbPath}' AS attached_db`);
         
-        if (tables.length > 0) {
-          setAvailableTables(tables.map(t => t.name));
-          setConnectionStep('select');
-          toast.success('File loaded successfully! Select tables to import.');
-        } else {
-          // Try alternative method
-          await importDuckDBFileAlternative(uint8Array, fileName);
-        }
-      } catch (e) {
-        await importDuckDBFileAlternative(uint8Array, fileName);
-      }
-    } catch (error: any) {
-      toast.error(`DuckDB file import failed: ${error.message}`);
-      throw error;
-    }
-  };
-
-  const importDuckDBFileAlternative = async (data: Uint8Array, fileName: string) => {
-    // Alternative: Try to read as Parquet or CSV if it's a data file
-    try {
-      const conn = await getConnection();
-      
-      // Try reading as parquet
-      const tempPath = `/tmp/${fileName}`;
-      if ((conn as any).registerFileBuffer) {
-        await (conn as any).registerFileBuffer(tempPath, data);
-        
-        // Try to read metadata
+        // Get tables from the attached database
         const tables = await executeQuery(`
           SELECT table_name 
-          FROM information_schema.tables 
+          FROM attached_db.information_schema.tables 
           WHERE table_schema = 'main'
         `);
         
         if (tables.length > 0) {
           setAvailableTables(tables.map(t => t.table_name));
           setConnectionStep('select');
-          toast.success('Database file loaded! Select tables to import.');
+          toast.success(`Found ${tables.length} table(s)! Select tables to import.`);
         } else {
-          toast.info('Could not read database structure. Importing as single table.');
-          await importAsSingleTable(fileName);
+          toast.error('No tables found in the database file');
+        }
+      } catch (error: any) {
+        // If attach fails, try reading as SQLite
+        try {
+          await executeQuery(`INSTALL sqlite; LOAD sqlite;`);
+          await executeQuery(`ATTACH '${dbPath}' AS attached_db (TYPE SQLITE)`);
+          
+          const tables = await executeQuery(`
+            SELECT name as table_name 
+            FROM attached_db.sqlite_master 
+            WHERE type='table'
+          `);
+          
+          if (tables.length > 0) {
+            setAvailableTables(tables.map(t => t.table_name));
+            setConnectionStep('select');
+            toast.success(`Found ${tables.length} table(s)! Select tables to import.`);
+          } else {
+            toast.error('No tables found in the database file');
+          }
+        } catch (sqliteError: any) {
+          toast.error(`Failed to read database: ${sqliteError.message}`);
+          throw sqliteError;
         }
       }
     } catch (error: any) {
-      toast.info('Attempting to import as single table...');
-      await importAsSingleTable(fileName);
+      toast.error(`File import failed: ${error.message}`);
+      throw error;
     }
   };
 
-  const importAsSingleTable = async (fileName: string) => {
-    // Last resort: create a single table with the file name
-    const tableName = fileName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
-    toast.success(`Imported as table: ${tableName}`);
-    setOpen(false);
-    if (onImportComplete) onImportComplete();
-  };
 
   const handleRemoteDatabaseConnect = async () => {
-    // For remote databases, we use DuckDB extensions
-    const conn = await getConnection();
+    toast.info('Connecting to remote database...');
     
     try {
-      if (connectionType === 'mysql') {
-        // Install and load MySQL extension
-        await executeQuery(`INSTALL mysql; LOAD mysql;`);
-        
-        // Connect to MySQL
-        const attachString = `ATTACH 'host=${config.host} port=${config.port} database=${config.database} user=${config.username} password=${config.password}' AS mysql_db (TYPE mysql)`;
-        await executeQuery(attachString);
-        
-        // Get list of tables
-        const tables = await executeQuery(`SELECT table_name FROM mysql_db.information_schema.tables WHERE table_schema = '${config.database}'`);
-        setAvailableTables(tables.map(t => t.table_name));
-        setConnectionStep('select');
-        toast.success('Connected to MySQL! Select tables to import.');
-      } else if (connectionType === 'postgresql') {
-        // Install and load PostgreSQL extension
-        await executeQuery(`INSTALL postgres; LOAD postgres;`);
-        
-        // Connect to PostgreSQL
-        const attachString = `ATTACH 'host=${config.host} port=${config.port || '5432'} dbname=${config.database} user=${config.username} password=${config.password}' AS postgres_db (TYPE postgres)`;
-        await executeQuery(attachString);
-        
-        // Get list of tables
-        const tables = await executeQuery(`SELECT table_name FROM postgres_db.information_schema.tables WHERE table_schema = 'public'`);
-        setAvailableTables(tables.map(t => t.table_name));
-        setConnectionStep('select');
-        toast.success('Connected to PostgreSQL! Select tables to import.');
+      if (connectionType === 'mysql' || connectionType === 'postgresql') {
+        // Note: DuckDB WASM in browser doesn't support direct MySQL/PostgreSQL connections
+        // This would require a backend proxy or using DuckDB's httpfs extension
+        toast.error(
+          'Direct database connections are not supported in the browser version. ' +
+          'Please export your data as CSV/Parquet and upload it, or use the DuckDB file upload option.'
+        );
+        return;
       } else if (connectionType === 'sqlite') {
         toast.info('Use DuckDB file upload for SQLite databases');
       }
@@ -243,18 +198,19 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
       for (const table of selectedTables) {
         const sanitizedName = table.replace(/[^a-zA-Z0-9_]/g, '_');
         
-        if (connectionType === 'mysql') {
-          await executeQuery(`CREATE TABLE ${sanitizedName} AS SELECT * FROM mysql_db.${table}`);
-        } else if (connectionType === 'postgresql') {
-          await executeQuery(`CREATE TABLE ${sanitizedName} AS SELECT * FROM postgres_db.${table}`);
-        } else {
-          // DuckDB file import
-          await executeQuery(`CREATE TABLE ${sanitizedName} AS SELECT * FROM ${table}`);
-        }
-        
+        // Import from attached database
+        await executeQuery(`CREATE TABLE ${sanitizedName} AS SELECT * FROM attached_db.${table}`);
         toast.success(`Imported table: ${sanitizedName}`);
       }
       
+      // Detach the database
+      try {
+        await executeQuery(`DETACH attached_db`);
+      } catch (e) {
+        // Ignore detach errors
+      }
+      
+      toast.success(`Successfully imported ${selectedTables.length} table(s)!`);
       setOpen(false);
       if (onImportComplete) onImportComplete();
       
@@ -320,25 +276,15 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
                 </TabsContent>
 
                 <TabsContent value="mysql" className="space-y-4">
-                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex gap-2">
-                        <Database className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-medium text-blue-900 dark:text-blue-100">Try a Sample Connection</p>
-                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                            {sampleConnections.mysql.note}
-                          </p>
-                        </div>
+                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
+                    <div className="flex gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-medium text-amber-900 dark:text-amber-100">Browser Limitation</p>
+                        <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                          Direct MySQL connections are not supported in browser. Please export your data as CSV, Parquet, or DuckDB file and use the file upload option instead.
+                        </p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => loadSampleConnection('mysql')}
-                        className="shrink-0"
-                      >
-                        Load Sample
-                      </Button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -395,25 +341,15 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
                 </TabsContent>
 
                 <TabsContent value="postgresql" className="space-y-4">
-                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex gap-2">
-                        <Database className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-medium text-blue-900 dark:text-blue-100">Try a Sample Connection</p>
-                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                            {sampleConnections.postgresql.note}
-                          </p>
-                        </div>
+                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
+                    <div className="flex gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-medium text-amber-900 dark:text-amber-100">Browser Limitation</p>
+                        <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                          Direct PostgreSQL connections are not supported in browser. Please export your data as CSV, Parquet, or DuckDB file and use the file upload option instead.
+                        </p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => loadSampleConnection('postgresql')}
-                        className="shrink-0"
-                      >
-                        Load Sample
-                      </Button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
