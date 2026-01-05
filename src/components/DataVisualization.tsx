@@ -56,15 +56,22 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
     };
   }, [data, selectedColumn]);
 
-  const getChartOption = () => {
+  const getChartOption = useMemo(() => {
     if (!chartData) return {};
 
     const baseColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
 
+    const baseOption = {
+      tooltip: { trigger: chartType === 'pie' ? 'item' : 'axis' },
+      color: baseColors,
+      animation: true,
+      animationDuration: 500,
+    };
+
     switch (chartType) {
       case 'bar':
         return {
-          tooltip: { trigger: 'axis' },
+          ...baseOption,
           xAxis: {
             type: 'category',
             data: chartData.categories,
@@ -80,7 +87,7 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
 
       case 'line':
         return {
-          tooltip: { trigger: 'axis' },
+          ...baseOption,
           xAxis: {
             type: 'category',
             data: chartData.categories,
@@ -97,11 +104,11 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
 
       case 'pie':
         return {
-          tooltip: { trigger: 'item' },
+          ...baseOption,
           legend: { orient: 'vertical', left: 'left' },
           series: [{
             type: 'pie',
-            radius: '50%',
+            radius: ['30%', '60%'],
             data: chartData.pieData,
             emphasis: {
               itemStyle: {
@@ -115,19 +122,20 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
 
       case 'scatter':
         return {
-          tooltip: { trigger: 'item' },
+          ...baseOption,
           xAxis: { type: 'category', data: chartData.categories },
           yAxis: { type: 'value' },
           series: [{
             type: 'scatter',
             data: chartData.values,
+            symbolSize: 10,
             itemStyle: { color: baseColors[3] }
           }]
         };
 
       case 'area':
         return {
-          tooltip: { trigger: 'axis' },
+          ...baseOption,
           xAxis: {
             type: 'category',
             data: chartData.categories,
@@ -144,10 +152,14 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
         };
 
       case 'radar':
+        const maxVal = Math.max(...chartData.values);
         return {
-          tooltip: { trigger: 'item' },
+          ...baseOption,
           radar: {
-            indicator: chartData.categories.slice(0, 8).map(cat => ({ name: cat, max: Math.max(...chartData.values) }))
+            indicator: chartData.categories.slice(0, 8).map(cat => ({ 
+              name: cat, 
+              max: maxVal > 0 ? maxVal : 1 
+            }))
           },
           series: [{
             type: 'radar',
@@ -162,7 +174,7 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
       default:
         return {};
     }
-  };
+  }, [chartData, chartType, selectedColumn]);
 
   if (!data.length) {
     return (
@@ -247,11 +259,12 @@ export function DataVisualization({ data, selectedColumn }: DataVisualizationPro
           {selectedColumn} - {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart
         </h3>
         <ReactECharts 
-          key={chartType}
+          key={`${chartType}-${selectedColumn}`}
           ref={chartRef}
-          option={getChartOption()} 
+          option={getChartOption} 
           style={{ height: '400px' }}
           opts={{ renderer: 'svg' }}
+          notMerge={true}
         />
       </Card>
     </div>

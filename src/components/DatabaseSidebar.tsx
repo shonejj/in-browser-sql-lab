@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X } from 'lucide-react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { CSVImporter } from './CSVImporter';
@@ -23,9 +23,11 @@ interface DatabaseSidebarProps {
   onDeleteTable?: (tableName: string) => void;
   onOpenInEditor?: (tableName: string) => void;
   onImportComplete?: () => void;
+  onTableDetails?: (tableName: string) => void;
+  onNotebookSelect?: (id: string) => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete, onTableDetails, onNotebookSelect }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(['trains']));
 
@@ -136,15 +138,26 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                         </span>
                       </button>
                       <div className="flex items-center opacity-0 group-hover:opacity-100 shrink-0">
+                        {onTableDetails && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => onTableDetails(table.name)}
+                            title="Table Details"
+                          >
+                            <Info className="w-3 h-3" />
+                          </Button>
+                        )}
                         {onOpenInEditor && (
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
                             onClick={() => onOpenInEditor(table.name)}
-                            title="Open in Editor"
+                            title="Edit Table Data"
                           >
-                            <MoreHorizontal className="w-3 h-3" />
+                            <Edit className="w-3 h-3" />
                           </Button>
                         )}
                         <Button
@@ -158,15 +171,6 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                           title="Copy table name"
                         >
                           <Copy className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => onTableClick(table.name)}
-                          title="Preview table"
-                        >
-                          <BarChart3 className="w-3 h-3" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -220,7 +224,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
         <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
         <DuckDBFileAttacher onAttach={onRefresh} />
         <DatabaseConnector onImportComplete={onImportComplete} />
-        <NotebookManagerEnhanced />
+        <NotebookManagerEnhanced onNotebookSelect={onNotebookSelect} />
         {onRefresh && (
           <Button 
             variant="ghost" 
