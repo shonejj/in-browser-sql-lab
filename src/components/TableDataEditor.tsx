@@ -274,14 +274,9 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
 
   return (
     <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="max-w-[95vw] max-h-[95vh] flex flex-col p-0">
+      <DialogContent className="max-w-[95vw] max-h-[95vh] flex flex-col p-0 [&>button:last-child]:hidden">
         <DialogHeader className="px-6 py-4 border-b">
-          <DialogTitle className="flex items-center justify-between">
-            <span>Table Editor: {tableName}</span>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
-          </DialogTitle>
+          <DialogTitle>Table Editor: {tableName}</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col flex-1 overflow-hidden">

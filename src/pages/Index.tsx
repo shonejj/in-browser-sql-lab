@@ -5,6 +5,7 @@ import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
 import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { TableDataEditor } from '@/components/TableDataEditor';
+import { TableDetailsPanel } from '@/components/TableDetailsPanel';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
 import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
@@ -36,6 +37,7 @@ const Index = () => {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [editingTable, setEditingTable] = useState<string | null>(null);
+  const [detailsTable, setDetailsTable] = useState<string | null>(null);
   const [currentNotebook, setCurrentNotebook] = useState<NotebookDoc | null>(null);
   const isInitializingRef = useRef(false);
 
@@ -465,6 +467,8 @@ const Index = () => {
           onDeleteTable={handleDeleteTable}
           onOpenInEditor={(tableName) => setEditingTable(tableName)}
           onImportComplete={refreshTables}
+          onTableDetails={(tableName) => setDetailsTable(tableName)}
+          onNotebookSelect={handleNotebookSelect}
         />
       )}
 
@@ -658,6 +662,14 @@ const Index = () => {
             setEditingTable(null);
             refreshTables();
           }}
+        />
+      )}
+
+      {/* Table Details Modal */}
+      {detailsTable && (
+        <TableDetailsPanel
+          tableName={detailsTable}
+          onClose={() => setDetailsTable(null)}
         />
       )}
     </div>
