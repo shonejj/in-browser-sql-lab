@@ -226,10 +226,11 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
       </div>
 
       {/* Footer Actions */}
-      <div className="p-2 border-t border-sidebar-border flex gap-1">
+      <div className="p-2 border-t border-sidebar-border flex gap-1 flex-wrap">
         <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
         <DuckDBFileAttacher onAttach={onRefresh} />
         <DatabaseConnector onImportComplete={onImportComplete} />
+        <ExtensionsPanel />
         <NotebookManagerEnhanced onNotebookSelect={onNotebookSelect} />
         {onRefresh && (
           <Button 
@@ -241,15 +242,6 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
             <RefreshCw className="w-3.5 h-3.5" />
           </Button>
         )}
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
-          disabled
-          title="Search feature coming soon"
-        >
-          <Search className="w-3.5 h-3.5" />
-        </Button>
       </div>
     </div>
   );
