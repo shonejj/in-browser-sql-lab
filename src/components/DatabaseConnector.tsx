@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Database, Upload, Link2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
-import { getConnection, executeQuery } from '@/lib/duckdb';
+import { getConnection, executeQuery, isBackendMode, backendAttachDatabase } from '@/lib/duckdb';
 
 interface DatabaseConnectorProps {
   onImportComplete?: () => void;
