@@ -536,7 +536,7 @@ export function AdvancedChartBuilder({ data }: AdvancedChartBuilderProps) {
 
                   <div>
                     <Label className="text-xs">Y Axis (Value)</Label>
-                    <Select value={newChart.yAxis} onValueChange={(v) => setNewChart({ ...newChart, yAxis: v })}>
+                    <Select value={newChart.yAxis || '__none__'} onValueChange={(v) => setNewChart({ ...newChart, yAxis: v === '__none__' ? undefined : v })}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Optional - for aggregation" />
                       </SelectTrigger>
