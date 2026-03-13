@@ -518,6 +518,19 @@ const Index = () => {
                 {isBackendMode() ? 'Backend' : 'WASM'}
               </Badge>
             </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLoadSampleData}
+              className="h-7 px-2 gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="text-xs">Sample Data</span>
+            </Button>
             <Button 
               variant="ghost" 
               size="sm"
