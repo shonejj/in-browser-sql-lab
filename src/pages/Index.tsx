@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { DatabaseSidebar } from '@/components/DatabaseSidebar';
 import { QueryCell } from '@/components/QueryCell';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
@@ -6,15 +6,17 @@ import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { TableDataEditor } from '@/components/TableDataEditor';
 import { TableDetailsPanel } from '@/components/TableDetailsPanel';
+import { DataToolbar } from '@/components/DataToolbar';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
 import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
-import { initDuckDB, executeQuery, importCSVFile } from '@/lib/duckdb';
+import { initDuckDB, executeQuery, importCSVFile, isBackendMode } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { getNotebook, saveNotebook, type NotebookDoc } from '@/lib/notebooks';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 interface QueryCell {
