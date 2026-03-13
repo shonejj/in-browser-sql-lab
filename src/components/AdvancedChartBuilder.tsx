@@ -541,7 +541,7 @@ export function AdvancedChartBuilder({ data }: AdvancedChartBuilderProps) {
                         <SelectValue placeholder="Optional - for aggregation" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Count only</SelectItem>
+                        <SelectItem value="__none__">Count only</SelectItem>
                         {numericColumns.map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
