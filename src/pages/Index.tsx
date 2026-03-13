@@ -436,6 +436,38 @@ const Index = () => {
     }
   }
 
+  async function handleLoadSampleData() {
+    try {
+      toast.loading('Loading NYC taxi sample data...', { id: 'sample' });
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS nyc_taxi_trips AS
+        SELECT * FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
+      `);
+      await refreshTables();
+      toast.success('NYC taxi sample data loaded!', { id: 'sample' });
+    } catch (error: any) {
+      toast.error(`Failed to load sample data: ${error.message}`, { id: 'sample' });
+    }
+  }
+
+  function handleToolbarGenerateQuery(query: string) {
+    const newCell: QueryCell = {
+      id: Date.now().toString(),
+      query,
+      results: [],
+      isExecuting: false
+    };
+    setCells(prev => [...prev, newCell]);
+    // Auto-execute after a short delay
+    setTimeout(() => handleExecuteQuery(newCell.id), 200);
+  }
+
+  // Get columns from currently selected cell's results
+  const currentColumns = useMemo(() => {
+    const cell = cells.find(c => c.id === selectedCellId);
+    if (cell && cell.results.length > 0) return Object.keys(cell.results[0]);
+    return [];
+  }, [cells, selectedCellId]);
 
   return (
     <div className="flex h-screen bg-background">
