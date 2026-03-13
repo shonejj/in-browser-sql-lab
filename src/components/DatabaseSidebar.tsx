@@ -75,12 +75,15 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
     <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen border-r border-sidebar-border overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-2">
           <Database className="w-5 h-5 text-sidebar-primary" />
           <h1 className="font-semibold text-sm">DuckDB Lab</h1>
+          <Badge variant={isBackendMode() ? 'default' : 'secondary'} className="text-[10px] h-4 px-1 ml-auto">
+            {isBackendMode() ? 'Backend' : 'WASM'}
+          </Badge>
         </div>
         
-        <div className="mt-2 pl-4 text-xs text-sidebar-foreground/80">
+        <div className="mt-1 pl-4 text-xs text-sidebar-foreground/80">
           Interactive SQL Workspace
         </div>
       </div>
