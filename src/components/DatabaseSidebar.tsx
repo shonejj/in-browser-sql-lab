@@ -6,6 +6,9 @@ import { CSVImporter } from './CSVImporter';
 import { DuckDBFileAttacher } from './DuckDBFileAttacher';
 import { DatabaseConnector } from './DatabaseConnector';
 import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
+import { ExtensionsPanel } from './ExtensionsPanel';
+import { Badge } from './ui/badge';
+import { isBackendMode } from '@/lib/duckdb';
 import { toast } from 'sonner';
 
 interface Column {
