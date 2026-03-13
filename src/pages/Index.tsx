@@ -86,19 +86,8 @@ const Index = () => {
         await executeQuery(`INSERT INTO trains VALUES ${values}`);
       }
 
-      // Create NYC taxi trips table from remote CSV (only if it doesn't exist)
-      try {
-        const existingTables = await executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='nyc_taxi_trips'");
-        if (existingTables.length === 0) {
-          await executeQuery(`
-            CREATE TABLE nyc_taxi_trips AS
-            SELECT *
-            FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
-          `);
-        }
-      } catch (error) {
-        console.warn('Failed to load NYC taxi data:', error);
-      }
+      // NYC taxi data loading is now lazy - use "Load Sample Dataset" button
+      // This speeds up initial boot significantly
 
       setIsInitialized(true);
       toast.success('Database initialized with sample data', { id: 'init' });
