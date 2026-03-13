@@ -512,13 +512,12 @@ const Index = () => {
                 <PanelLeftOpen className="w-4 h-4" />
               )}
             </Button>
-            <div className="text-sm font-semibold">
-              DuckDB Lab
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">DuckDB Lab</span>
+              <Badge variant={isBackendMode() ? 'default' : 'secondary'} className="text-[10px] h-4 px-1.5">
+                {isBackendMode() ? 'Backend' : 'WASM'}
+              </Badge>
             </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
             <Button 
               variant="ghost" 
               size="sm"
