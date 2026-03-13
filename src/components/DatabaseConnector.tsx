@@ -166,24 +166,40 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
 
 
   const handleRemoteDatabaseConnect = async () => {
-    toast.info('Connecting to remote database...');
-    
-    try {
-      if (connectionType === 'mysql' || connectionType === 'postgresql') {
-        // Note: DuckDB WASM in browser doesn't support direct MySQL/PostgreSQL connections
-        // This would require a backend proxy or using DuckDB's httpfs extension
-        toast.error(
-          'Direct database connections are not supported in the browser version. ' +
-          'Please export your data as CSV/Parquet and upload it, or use the DuckDB file upload option.'
-        );
-        return;
-      } else if (connectionType === 'sqlite') {
-        toast.info('Use DuckDB file upload for SQLite databases');
+    if (isBackendMode()) {
+      // Backend mode: real DB connections via DuckDB extensions
+      toast.info('Connecting via backend...');
+      try {
+        const result = await backendAttachDatabase({
+          type: connectionType,
+          host: config.host,
+          port: config.port ? parseInt(config.port) : undefined,
+          database: config.database,
+          username: config.username,
+          password: config.password,
+        });
+        toast.success(result.message);
+
+        // List tables from attached database
+        const alias = result.alias;
+        const tables = await executeQuery(`SELECT table_name FROM ${alias}.information_schema.tables WHERE table_schema = 'main' OR table_schema = 'public'`);
+        if (tables.length > 0) {
+          setAvailableTables(tables.map((t: any) => t.table_name));
+          setConnectionStep('select');
+        } else {
+          toast.warning('Connected but no tables found');
+        }
+      } catch (err: any) {
+        toast.error(`Connection failed: ${err.message}`);
       }
-    } catch (error: any) {
-      toast.error(`Connection failed: ${error.message}`);
-      throw error;
+      return;
     }
+
+    // WASM mode: not supported
+    toast.error(
+      'Direct database connections require the backend service. ' +
+      'Start the FastAPI backend (see backend/README.md) or export data as CSV/Parquet.'
+    );
   };
 
   const handleImportTables = async () => {
