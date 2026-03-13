@@ -606,6 +606,16 @@ const Index = () => {
           </div>
         </div>
 
+        {/* Data Toolbar */}
+        {currentColumns.length > 0 && (
+          <div className="px-6 pt-4">
+            <DataToolbar
+              columns={currentColumns}
+              onGenerateQuery={handleToolbarGenerateQuery}
+            />
+          </div>
+        )}
+
         {/* Query and Results */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-20">
           {cells.map((cell) => (
