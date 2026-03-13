@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { DatabaseSidebar } from '@/components/DatabaseSidebar';
 import { QueryCell } from '@/components/QueryCell';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
@@ -6,15 +6,17 @@ import { QueryHistory, QueryHistoryItem } from '@/components/QueryHistory';
 import { AIChatAssistant } from '@/components/AIChatAssistant';
 import { TableDataEditor } from '@/components/TableDataEditor';
 import { TableDetailsPanel } from '@/components/TableDetailsPanel';
+import { DataToolbar } from '@/components/DataToolbar';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
 import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
-import { initDuckDB, executeQuery, importCSVFile } from '@/lib/duckdb';
+import { initDuckDB, executeQuery, importCSVFile, isBackendMode } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { getNotebook, saveNotebook, type NotebookDoc } from '@/lib/notebooks';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 interface QueryCell {
@@ -84,19 +86,8 @@ const Index = () => {
         await executeQuery(`INSERT INTO trains VALUES ${values}`);
       }
 
-      // Create NYC taxi trips table from remote CSV (only if it doesn't exist)
-      try {
-        const existingTables = await executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='nyc_taxi_trips'");
-        if (existingTables.length === 0) {
-          await executeQuery(`
-            CREATE TABLE nyc_taxi_trips AS
-            SELECT *
-            FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
-          `);
-        }
-      } catch (error) {
-        console.warn('Failed to load NYC taxi data:', error);
-      }
+      // NYC taxi data loading is now lazy - use "Load Sample Dataset" button
+      // This speeds up initial boot significantly
 
       setIsInitialized(true);
       toast.success('Database initialized with sample data', { id: 'init' });
@@ -445,6 +436,38 @@ const Index = () => {
     }
   }
 
+  async function handleLoadSampleData() {
+    try {
+      toast.loading('Loading NYC taxi sample data...', { id: 'sample' });
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS nyc_taxi_trips AS
+        SELECT * FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
+      `);
+      await refreshTables();
+      toast.success('NYC taxi sample data loaded!', { id: 'sample' });
+    } catch (error: any) {
+      toast.error(`Failed to load sample data: ${error.message}`, { id: 'sample' });
+    }
+  }
+
+  function handleToolbarGenerateQuery(query: string) {
+    const newCell: QueryCell = {
+      id: Date.now().toString(),
+      query,
+      results: [],
+      isExecuting: false
+    };
+    setCells(prev => [...prev, newCell]);
+    // Auto-execute after a short delay
+    setTimeout(() => handleExecuteQuery(newCell.id), 200);
+  }
+
+  // Get columns from currently selected cell's results
+  const currentColumns = useMemo(() => {
+    const cell = cells.find(c => c.id === selectedCellId);
+    if (cell && cell.results.length > 0) return Object.keys(cell.results[0]);
+    return [];
+  }, [cells, selectedCellId]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -489,13 +512,25 @@ const Index = () => {
                 <PanelLeftOpen className="w-4 h-4" />
               )}
             </Button>
-            <div className="text-sm font-semibold">
-              DuckDB Lab
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">DuckDB Lab</span>
+              <Badge variant={isBackendMode() ? 'default' : 'secondary'} className="text-[10px] h-4 px-1.5">
+                {isBackendMode() ? 'Backend' : 'WASM'}
+              </Badge>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
             <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLoadSampleData}
+              className="h-7 px-2 gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="text-xs">Sample Data</span>
+            </Button>
             <Button 
               variant="ghost" 
               size="sm"
@@ -582,6 +617,16 @@ const Index = () => {
             </Button>
           </div>
         </div>
+
+        {/* Data Toolbar */}
+        {currentColumns.length > 0 && (
+          <div className="px-6 pt-4">
+            <DataToolbar
+              columns={currentColumns}
+              onGenerateQuery={handleToolbarGenerateQuery}
+            />
+          </div>
+        )}
 
         {/* Query and Results */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-20">

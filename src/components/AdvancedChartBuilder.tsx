@@ -536,12 +536,12 @@ export function AdvancedChartBuilder({ data }: AdvancedChartBuilderProps) {
 
                   <div>
                     <Label className="text-xs">Y Axis (Value)</Label>
-                    <Select value={newChart.yAxis} onValueChange={(v) => setNewChart({ ...newChart, yAxis: v })}>
+                    <Select value={newChart.yAxis || '__none__'} onValueChange={(v) => setNewChart({ ...newChart, yAxis: v === '__none__' ? undefined : v })}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Optional - for aggregation" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Count only</SelectItem>
+                        <SelectItem value="__none__">Count only</SelectItem>
                         {numericColumns.map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
