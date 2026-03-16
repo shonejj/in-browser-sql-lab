@@ -10,14 +10,21 @@ import { DataToolbar } from '@/components/DataToolbar';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
 import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
-import { initDuckDB, executeQuery, importCSVFile, isBackendMode } from '@/lib/duckdb';
+import { 
+  initDuckDB, executeQuery, importCSVFile, isBackendMode, 
+  getBackendUrl, setBackendUrl, forceWasmMode, forceBackendMode, setAutoMode,
+  getForceMode
+} from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { getNotebook, saveNotebook, type NotebookDoc } from '@/lib/notebooks';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download, Server, Monitor, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface QueryCell {
   id: string;
@@ -43,6 +50,11 @@ const Index = () => {
   const [currentNotebook, setCurrentNotebook] = useState<NotebookDoc | null>(null);
   const isInitializingRef = useRef(false);
 
+  // Mode switch dialog
+  const [modeDialogOpen, setModeDialogOpen] = useState(false);
+  const [backendUrlInput, setBackendUrlInput] = useState(getBackendUrl());
+  const [currentMode, setCurrentMode] = useState<'wasm' | 'backend'>(isBackendMode() ? 'backend' : 'wasm');
+
   useEffect(() => {
     if (!isInitializingRef.current && !isInitialized) {
       initializeDatabase();
@@ -57,11 +69,10 @@ const Index = () => {
       toast.loading('Initializing DuckDB...', { id: 'init' });
       
       await initDuckDB();
+      setCurrentMode(isBackendMode() ? 'backend' : 'wasm');
       
-      // Generate smaller sample data for better performance (1000 rows instead of 10000)
       const trainData = generateTrainData(1000);
       
-      // Create trains table
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS trains (
           service_id INTEGER,
@@ -75,7 +86,6 @@ const Index = () => {
         )
       `);
 
-      // Insert train data in batches
       const batchSize = 500;
       for (let i = 0; i < trainData.length; i += batchSize) {
         const batch = trainData.slice(i, i + batchSize);
@@ -86,16 +96,11 @@ const Index = () => {
         await executeQuery(`INSERT INTO trains VALUES ${values}`);
       }
 
-      // NYC taxi data loading is now lazy - use "Load Sample Dataset" button
-      // This speeds up initial boot significantly
-
       setIsInitialized(true);
-      toast.success('Database initialized with sample data', { id: 'init' });
+      toast.success(`Database initialized (${isBackendMode() ? 'Server' : 'WASM'} mode)`, { id: 'init' });
       
-      // Update tables list
       await refreshTables();
       
-      // Store table names globally for SQL autocomplete
       const tablesResult = await executeQuery("SELECT name FROM sqlite_master WHERE type='table'");
       (window as any).__duckdb_tables__ = tablesResult.map((t: any) => t.name);
     } catch (error) {
@@ -103,6 +108,24 @@ const Index = () => {
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
     } finally {
       isInitializingRef.current = false;
+    }
+  }
+
+  async function handleSwitchMode(mode: 'wasm' | 'backend') {
+    try {
+      if (mode === 'backend') {
+        toast.loading('Connecting to backend...', { id: 'mode' });
+        await forceBackendMode(backendUrlInput);
+        toast.success('Switched to Server mode', { id: 'mode' });
+      } else {
+        toast.loading('Switching to WASM...', { id: 'mode' });
+        await forceWasmMode();
+        toast.success('Switched to WASM mode', { id: 'mode' });
+      }
+      setCurrentMode(mode);
+      setModeDialogOpen(false);
+    } catch (err: any) {
+      toast.error(`Mode switch failed: ${err.message}`, { id: 'mode' });
     }
   }
 
@@ -115,38 +138,22 @@ const Index = () => {
     const cell = cells.find(c => c.id === cellId);
     if (!cell) return;
 
-    // Check if query is COPY command for CSV export
     const copyMatch = cell.query.match(/COPY\s*\((.*?)\)\s*TO\s*['"](.+?)['"]/i);
     if (copyMatch) {
       try {
         const innerQuery = copyMatch[1];
         const fileName = copyMatch[2];
-        
-        // Execute the inner query
         const result = await executeQuery(innerQuery);
-        
-        if (result.length === 0) {
-          toast.error('No data to export');
-          return;
-        }
-        
-        // Convert to CSV
+        if (result.length === 0) { toast.error('No data to export'); return; }
         const columns = Object.keys(result[0]);
         const headers = columns.join(',');
-        const csvRows = result.map(row => 
-          columns.map(c => JSON.stringify(row[c] ?? '')).join(',')
-        );
+        const csvRows = result.map(row => columns.map(c => JSON.stringify(row[c] ?? '')).join(','));
         const csv = [headers, ...csvRows].join('\n');
-        
-        // Download file
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        a.click();
+        a.href = url; a.download = fileName; a.click();
         URL.revokeObjectURL(url);
-        
         toast.success(`Exported ${result.length} rows to ${fileName}`);
         return;
       } catch (error: any) {
@@ -155,34 +162,21 @@ const Index = () => {
       }
     }
 
-    setCells(prev => prev.map(c => 
-      c.id === cellId ? { ...c, isExecuting: true } : c
-    ));
-
+    setCells(prev => prev.map(c => c.id === cellId ? { ...c, isExecuting: true } : c));
     const startTime = performance.now();
     
     try {
       const result = await executeQuery(cell.query);
       const executionTime = Math.round(performance.now() - startTime);
       
-      setCells(prev => prev.map(c => 
-        c.id === cellId ? { ...c, results: result, isExecuting: false } : c
-      ));
-      
-      // Set this as the selected cell for diagnostics
+      setCells(prev => prev.map(c => c.id === cellId ? { ...c, results: result, isExecuting: false } : c));
       setSelectedCellId(cellId);
       
-      // Add to history
       setQueryHistory(prev => [...prev, {
-        id: Date.now().toString(),
-        query: cell.query,
-        timestamp: new Date(),
-        success: true,
-        rowCount: result.length,
-        executionTime,
+        id: Date.now().toString(), query: cell.query, timestamp: new Date(),
+        success: true, rowCount: result.length, executionTime,
       }]);
       
-      // Auto-select first column with categorical data
       if (result.length > 0) {
         const columns = Object.keys(result[0]);
         const categoricalCol = columns.find(col => {
@@ -195,95 +189,50 @@ const Index = () => {
       toast.success(`Query executed: ${result.length} rows in ${executionTime}ms`);
     } catch (error: any) {
       console.error('Query error:', error);
-      
-      setCells(prev => prev.map(c => 
-        c.id === cellId ? { ...c, isExecuting: false } : c
-      ));
-      
-      // Add failed query to history
+      setCells(prev => prev.map(c => c.id === cellId ? { ...c, isExecuting: false } : c));
       setQueryHistory(prev => [...prev, {
-        id: Date.now().toString(),
-        query: cell.query,
-        timestamp: new Date(),
-        success: false,
+        id: Date.now().toString(), query: cell.query, timestamp: new Date(), success: false,
       }]);
-      
       toast.error(error.message || 'Query execution failed');
     }
   }
 
   function handleAddCell() {
-    const newCell: QueryCell = {
-      id: Date.now().toString(),
-      query: '',
-      results: [],
-      isExecuting: false
-    };
+    const newCell: QueryCell = { id: Date.now().toString(), query: '', results: [], isExecuting: false };
     setCells(prev => [...prev, newCell]);
     toast.success('New query cell added');
   }
 
   function handleDeleteCell(cellId: string) {
-    if (cells.length === 1) {
-      toast.error('Cannot delete the last cell');
-      return;
-    }
+    if (cells.length === 1) { toast.error('Cannot delete the last cell'); return; }
     setCells(prev => prev.filter(c => c.id !== cellId));
     toast.success('Cell deleted');
   }
 
   function handleUpdateCellQuery(cellId: string, query: string) {
-    setCells(prev => prev.map(c => 
-      c.id === cellId ? { ...c, query } : c
-    ));
+    setCells(prev => prev.map(c => c.id === cellId ? { ...c, query } : c));
   }
 
   function handleNotebookSelect(notebookId: string) {
     const notebook = getNotebook(notebookId);
-    if (!notebook) {
-      toast.error('Notebook not found');
-      return;
-    }
-
-    // Load notebook cells
-    const queryCells = notebook.cells
-      .filter(cell => cell.type === 'code')
-      .map((cell, index) => ({
-        id: `${Date.now()}_${index}`,
-        query: cell.content,
-        results: [],
-        isExecuting: false
-      }));
-
+    if (!notebook) { toast.error('Notebook not found'); return; }
+    const queryCells = notebook.cells.filter(cell => cell.type === 'code').map((cell, index) => ({
+      id: `${Date.now()}_${index}`, query: cell.content, results: [], isExecuting: false
+    }));
     if (queryCells.length === 0) {
-      queryCells.push({
-        id: Date.now().toString(),
-        query: '',
-        results: [],
-        isExecuting: false
-      });
+      queryCells.push({ id: Date.now().toString(), query: '', results: [], isExecuting: false });
     }
-
     setCells(queryCells);
     setCurrentNotebook(notebook);
     toast.success(`Opened notebook: ${notebook.title}`);
   }
 
   function handleSaveNotebook() {
-    if (!currentNotebook) {
-      toast.error('No notebook is currently open');
-      return;
-    }
-
+    if (!currentNotebook) { toast.error('No notebook is currently open'); return; }
     const updatedNotebook: NotebookDoc = {
       ...currentNotebook,
-      cells: cells.map(cell => ({
-        id: cell.id,
-        type: 'code' as const,
-        content: cell.query
-      }))
+      cells: cells.map(cell => ({ id: cell.id, type: 'code' as const, content: cell.query }))
     };
-
     saveNotebook(updatedNotebook);
     setCurrentNotebook(updatedNotebook);
     toast.success('Notebook saved');
@@ -291,35 +240,17 @@ const Index = () => {
 
   async function refreshTables() {
     try {
-      // Get tables using the executeQuery helper which handles BigInt conversion
       const tablesResult = await executeQuery("SELECT name FROM sqlite_master WHERE type='table'");
-      
       const tablesData = [];
-      
       for (const tableRow of tablesResult) {
         const tableName = tableRow.name;
-        
-        // Get row count - using executeQuery for proper BigInt handling
         const countResult = await executeQuery(`SELECT COUNT(*) as count FROM ${tableName}`);
         const rowCount = countResult[0].count;
-        
-        // Get columns - using executeQuery for proper BigInt handling
         const columnsResult = await executeQuery(`PRAGMA table_info('${tableName}')`);
-        const columns = columnsResult.map((col: any) => ({
-          name: col.name,
-          type: col.type,
-        }));
-        
-        tablesData.push({
-          name: tableName,
-          rowCount,
-          columns,
-        });
+        const columns = columnsResult.map((col: any) => ({ name: col.name, type: col.type }));
+        tablesData.push({ name: tableName, rowCount, columns });
       }
-      
       setTables(tablesData);
-      
-      // Update global table list for SQL autocomplete
       (window as any).__duckdb_tables__ = tablesData.map(t => t.name);
     } catch (error) {
       console.error('Failed to refresh tables:', error);
@@ -328,82 +259,49 @@ const Index = () => {
 
   async function handleImportCSV(tableName: string, data: any[], columns: string[], opts?: { overwrite?: boolean, allVarchar?: boolean }) {
     try {
-      // If data is a File passed for large import
       if (data && data.length === 1 && data[0] instanceof File) {
         const file = data[0] as File;
-        if (opts?.overwrite) {
-          await executeQuery(`DROP TABLE IF EXISTS "${tableName.replace(/"/g, '""')}"`);
-        }
+        if (opts?.overwrite) await executeQuery(`DROP TABLE IF EXISTS "${tableName.replace(/"/g, '""')}"`);
         await importCSVFile(file, tableName, columns);
         await refreshTables();
         return;
       }
       
-      // Protect table name
       const safeTable = String(tableName).replace(/"/g, '""');
-      
-      // Check if table already exists
       const existsRes = await executeQuery(`SELECT name FROM sqlite_master WHERE type='table' AND name='${safeTable}'`);
       if (existsRes && existsRes.length > 0) {
-        if (opts?.overwrite) {
-          await executeQuery(`DROP TABLE IF EXISTS "${safeTable}"`);
-        } else {
-          throw new Error(`Table '${tableName}' already exists. Please delete it first or choose a different name.`);
-        }
+        if (opts?.overwrite) await executeQuery(`DROP TABLE IF EXISTS "${safeTable}"`);
+        else throw new Error(`Table '${tableName}' already exists.`);
       }
       
-      // Sanitize column names - remove empty strings, invalid characters, and ensure uniqueness
       const sanitizedColumns = columns.map((col, idx) => {
-        // Handle empty or whitespace-only column names
         let sanitized = col && col.trim() ? col.trim() : `column_${idx + 1}`;
-        
-        // Remove invalid characters and replace with underscore
         sanitized = sanitized.replace(/[^a-zA-Z0-9_]/g, '_');
-        
-        // Ensure it doesn't start with a number
-        if (/^\d/.test(sanitized)) {
-          sanitized = 'col_' + sanitized;
-        }
-        
+        if (/^\d/.test(sanitized)) sanitized = 'col_' + sanitized;
         return sanitized;
       });
-      
-      // Ensure unique column names
       const uniqueColumns = sanitizedColumns.map((col, idx) => {
         const duplicates = sanitizedColumns.slice(0, idx).filter(c => c === col);
         return duplicates.length > 0 ? `${col}_${duplicates.length + 1}` : col;
       });
       
-      // Create column definitions with type inference
       const columnDefs = uniqueColumns.map((col, idx) => {
-        // If allVarchar is true, force all columns to VARCHAR
-        if (opts?.allVarchar) {
-          return `"${col}" VARCHAR`;
-        }
-        
-        // Infer type from first non-null value
+        if (opts?.allVarchar) return `"${col}" VARCHAR`;
         const originalCol = columns[idx];
         const firstValue = data.find(row => row[originalCol] !== null && row[originalCol] !== undefined)?.[originalCol];
         let type = 'VARCHAR';
-        
-        if (typeof firstValue === 'number') {
-          type = Number.isInteger(firstValue) ? 'INTEGER' : 'DOUBLE';
-        } else if (firstValue instanceof Date) {
-          type = 'TIMESTAMP';
-        }
-        
+        if (typeof firstValue === 'number') type = Number.isInteger(firstValue) ? 'INTEGER' : 'DOUBLE';
+        else if (firstValue instanceof Date) type = 'TIMESTAMP';
         return `"${col}" ${type}`;
       }).join(', ');
       
-      // Create table using executeQuery for consistent handling
       await executeQuery(`CREATE TABLE "${safeTable}" (${columnDefs})`);
       
-      // Insert data in batches, mapping old column names to new ones
       const batchSize = 1000;
       for (let i = 0; i < data.length; i += batchSize) {
         const batch = data.slice(i, i + batchSize);
         const values = batch.map(row => {
-          const vals = columns.map((originalCol, idx) => {
+          const vals = columns.map((originalCol) => {
             const val = row[originalCol];
             if (val === null || val === undefined) return 'NULL';
             if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
@@ -411,11 +309,9 @@ const Index = () => {
           }).join(', ');
           return `(${vals})`;
         }).join(', ');
-        
         await executeQuery(`INSERT INTO "${safeTable}" VALUES ${values}`);
       }
       
-      // Refresh tables list
       await refreshTables();
       toast.success(`Imported ${data.length} rows into ${tableName}`);
     } catch (error: any) {
@@ -431,7 +327,6 @@ const Index = () => {
       await refreshTables();
       toast.success(`Table '${tableName}' deleted`);
     } catch (error: any) {
-      console.error('Failed to delete table:', error);
       toast.error(`Failed to delete table: ${error?.message || 'Unknown error'}`);
     }
   }
@@ -451,18 +346,11 @@ const Index = () => {
   }
 
   function handleToolbarGenerateQuery(query: string) {
-    const newCell: QueryCell = {
-      id: Date.now().toString(),
-      query,
-      results: [],
-      isExecuting: false
-    };
+    const newCell: QueryCell = { id: Date.now().toString(), query, results: [], isExecuting: false };
     setCells(prev => [...prev, newCell]);
-    // Auto-execute after a short delay
     setTimeout(() => handleExecuteQuery(newCell.id), 200);
   }
 
-  // Get columns from currently selected cell's results
   const currentColumns = useMemo(() => {
     const cell = cells.find(c => c.id === selectedCellId);
     if (cell && cell.results.length > 0) return Object.keys(cell.results[0]);
@@ -471,18 +359,11 @@ const Index = () => {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Left Sidebar - Collapsible */}
       {leftSidebarOpen && (
         <DatabaseSidebar 
           tables={tables} 
           onTableClick={(name) => {
-            // Add query to a new cell
-            const newCell: QueryCell = {
-              id: Date.now().toString(),
-              query: `SELECT * FROM ${name};`,
-              results: [],
-              isExecuting: false
-            };
+            const newCell: QueryCell = { id: Date.now().toString(), query: `SELECT * FROM ${name};`, results: [], isExecuting: false };
             setCells(prev => [...prev, newCell]);
           }}
           onImportCSV={handleImportCSV}
@@ -500,43 +381,36 @@ const Index = () => {
         {/* Top Bar */}
         <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-card">
           <div className="flex items-center gap-2">
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-              className="h-8 w-8"
-            >
-              {leftSidebarOpen ? (
-                <PanelLeftClose className="w-4 h-4" />
-              ) : (
-                <PanelLeftOpen className="w-4 h-4" />
-              )}
+            <Button variant="ghost" size="icon" onClick={() => setLeftSidebarOpen(!leftSidebarOpen)} className="h-8 w-8">
+              {leftSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
             </Button>
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">DuckDB Lab</span>
-              <Badge variant={isBackendMode() ? 'default' : 'secondary'} className="text-[10px] h-4 px-1.5">
-                {isBackendMode() ? 'Backend' : 'WASM'}
-              </Badge>
+              <button
+                onClick={() => { setBackendUrlInput(getBackendUrl()); setModeDialogOpen(true); }}
+                className="cursor-pointer"
+              >
+                <Badge 
+                  variant={currentMode === 'backend' ? 'default' : 'secondary'} 
+                  className="text-[10px] h-4 px-1.5 hover:opacity-80 transition-opacity"
+                >
+                  {currentMode === 'backend' ? (
+                    <><Server className="w-2.5 h-2.5 mr-0.5" /> Server</>
+                  ) : (
+                    <><Monitor className="w-2.5 h-2.5 mr-0.5" /> WASM</>
+                  )}
+                </Badge>
+              </button>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLoadSampleData}
-              className="h-7 px-2 gap-1.5"
-            >
+            <Button variant="ghost" size="sm" onClick={handleLoadSampleData} className="h-7 px-2 gap-1.5">
               <Download className="w-3.5 h-3.5" />
               <span className="text-xs">Sample Data</span>
             </Button>
-            <Button 
-              variant="ghost" 
-              size="sm"
-              onClick={handleAddCell}
-              className="h-7 px-2 gap-1.5"
-            >
+            <Button variant="ghost" size="sm" onClick={handleAddCell} className="h-7 px-2 gap-1.5">
               <Plus className="w-3.5 h-3.5" />
               <span className="text-xs">New Cell</span>
             </Button>
@@ -555,13 +429,7 @@ const Index = () => {
                 <QueryHistory 
                   history={queryHistory}
                   onRunQuery={(q) => {
-                    // Add query to a new cell
-                    const newCell: QueryCell = {
-                      id: Date.now().toString(),
-                      query: q,
-                      results: [],
-                      isExecuting: false
-                    };
+                    const newCell: QueryCell = { id: Date.now().toString(), query: q, results: [], isExecuting: false };
                     setCells(prev => [...prev, newCell]);
                     setHistoryOpen(false);
                     setTimeout(() => handleExecuteQuery(newCell.id), 100);
@@ -574,12 +442,7 @@ const Index = () => {
             <AIChatAssistant 
               tables={tables}
               onQuerySelect={(query) => {
-                const newCell: QueryCell = {
-                  id: Date.now().toString(),
-                  query,
-                  results: [],
-                  isExecuting: false
-                };
+                const newCell: QueryCell = { id: Date.now().toString(), query, results: [], isExecuting: false };
                 setCells(prev => [...prev, newCell]);
               }}
               renderTrigger={(onClick) => (
@@ -593,27 +456,13 @@ const Index = () => {
             <NotebookManagerEnhanced onNotebookSelect={handleNotebookSelect} />
 
             {currentNotebook && (
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={handleSaveNotebook}
-                className="h-7 px-2 gap-1.5"
-              >
+              <Button variant="ghost" size="sm" onClick={handleSaveNotebook} className="h-7 px-2 gap-1.5">
                 <span className="text-xs">Save: {currentNotebook.title}</span>
               </Button>
             )}
 
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-              className="h-8 w-8"
-            >
-              {rightSidebarOpen ? (
-                <PanelRightClose className="w-4 h-4" />
-              ) : (
-                <PanelRightOpen className="w-4 h-4" />
-              )}
+            <Button variant="ghost" size="icon" onClick={() => setRightSidebarOpen(!rightSidebarOpen)} className="h-8 w-8">
+              {rightSidebarOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
             </Button>
           </div>
         </div>
@@ -621,10 +470,7 @@ const Index = () => {
         {/* Data Toolbar */}
         {currentColumns.length > 0 && (
           <div className="px-6 pt-4">
-            <DataToolbar
-              columns={currentColumns}
-              onGenerateQuery={handleToolbarGenerateQuery}
-            />
+            <DataToolbar columns={currentColumns} onGenerateQuery={handleToolbarGenerateQuery} />
           </div>
         )}
 
@@ -642,17 +488,11 @@ const Index = () => {
               onDelete={() => handleDeleteCell(cell.id)}
               showDelete={cells.length > 1}
               onDataChange={(newData) => {
-                setCells(prev => prev.map(c => 
-                  c.id === cell.id ? { ...c, results: newData } : c
-                ));
+                setCells(prev => prev.map(c => c.id === cell.id ? { ...c, results: newData } : c));
               }}
-              onColumnClick={(col) => {
-                setSelectedColumn(col);
-                setSelectedCellId(cell.id);
-              }}
+              onColumnClick={(col) => { setSelectedColumn(col); setSelectedCellId(cell.id); }}
               selectedColumn={selectedCellId === cell.id ? selectedColumn : undefined}
               onOpenTableEditor={() => {
-                // Create temporary table from results and open editor
                 const tempTableName = `_temp_results_${Date.now()}`;
                 if (cell.results.length > 0) {
                   const cols = Object.keys(cell.results[0]);
@@ -668,24 +508,18 @@ const Index = () => {
                       ).join(',');
                       return executeQuery(`INSERT INTO "${tempTableName}" VALUES ${values}`);
                     })
-                    .then(() => {
-                      setEditingTable(tempTableName);
-                      toast.success('Created temporary table for editing');
-                    })
-                    .catch((err: any) => {
-                      toast.error(`Failed to create temp table: ${err.message}`);
-                    });
+                    .then(() => { setEditingTable(tempTableName); toast.success('Created temporary table for editing'); })
+                    .catch((err: any) => { toast.error(`Failed: ${err.message}`); });
                 }
               }}
             />
           ))}
         </div>
         
-        {/* Footer */}
         <Footer />
       </div>
 
-      {/* Right Sidebar - Diagnostics */}
+      {/* Right Sidebar */}
       {rightSidebarOpen && (
         <div className="w-80 border-l border-border bg-card flex flex-col overflow-hidden">
           <ColumnDiagnostics
@@ -699,24 +533,74 @@ const Index = () => {
         </div>
       )}
       
-      {/* Table Editor Modal */}
       {editingTable && (
-        <TableDataEditor 
-          tableName={editingTable}
-          onClose={() => {
-            setEditingTable(null);
-            refreshTables();
-          }}
-        />
+        <TableDataEditor tableName={editingTable} onClose={() => { setEditingTable(null); refreshTables(); }} />
       )}
 
-      {/* Table Details Modal */}
       {detailsTable && (
-        <TableDetailsPanel
-          tableName={detailsTable}
-          onClose={() => setDetailsTable(null)}
-        />
+        <TableDetailsPanel tableName={detailsTable} onClose={() => setDetailsTable(null)} />
       )}
+
+      {/* Mode Switch Dialog */}
+      <Dialog open={modeDialogOpen} onOpenChange={setModeDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="w-5 h-5" />
+              DuckDB Engine Mode
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Choose between local WASM engine (browser-only) or a remote Server engine with full extension support.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleSwitchMode('wasm')}
+                className={`p-4 rounded-lg border-2 text-left transition-colors ${
+                  currentMode === 'wasm' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                }`}
+              >
+                <Monitor className="w-6 h-6 mb-2" />
+                <div className="font-medium text-sm">WASM</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Runs in browser. No server needed. Limited extensions.
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleSwitchMode('backend')}
+                className={`p-4 rounded-lg border-2 text-left transition-colors ${
+                  currentMode === 'backend' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                }`}
+              >
+                <Server className="w-6 h-6 mb-2" />
+                <div className="font-medium text-sm">Server</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Full DuckDB. MySQL, Postgres, S3, all extensions.
+                </p>
+              </button>
+            </div>
+
+            <div>
+              <Label className="text-xs">Backend URL</Label>
+              <Input
+                value={backendUrlInput}
+                onChange={(e) => setBackendUrlInput(e.target.value)}
+                placeholder="http://localhost:9876"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Used when Server mode is selected. Default: http://localhost:9876
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModeDialogOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

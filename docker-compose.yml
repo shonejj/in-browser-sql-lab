@@ -1,0 +1,84 @@
+version: "3.8"
+
+services:
+  # ─── Frontend (Nginx serving Vite build) ──────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - duckdb-net
+
+  # ─── Backend (FastAPI + DuckDB native) ────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "9876:9876"
+    volumes:
+      - duckdb-data:/app/data
+    environment:
+      - DUCKDB_PATH=/app/data/main.duckdb
+      - DATA_DIR=/app/data
+    networks:
+      - duckdb-net
+
+  # ─── MySQL (sample database for testing) ──────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: duckdblab
+      MYSQL_DATABASE: sampledb
+      MYSQL_USER: duckdb
+      MYSQL_PASSWORD: duckdblab
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./backend/init_mysql.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - duckdb-net
+
+  # ─── phpMyAdmin ───────────────────────────────────────────────────────────
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: duckdblab
+    depends_on:
+      - mysql
+    networks:
+      - duckdb-net
+
+  # ─── MinIO (S3-compatible object storage) ─────────────────────────────────
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - duckdb-net
+
+volumes:
+  duckdb-data:
+  mysql-data:
+  minio-data:
+
+networks:
+  duckdb-net:
+    driver: bridge

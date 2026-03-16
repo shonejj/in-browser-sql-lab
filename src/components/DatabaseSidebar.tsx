@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Search, Copy, MoreHorizontal, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit } from 'lucide-react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download } from 'lucide-react';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { CSVImporter } from './CSVImporter';
 import { DuckDBFileAttacher } from './DuckDBFileAttacher';
 import { DatabaseConnector } from './DatabaseConnector';
+import { S3Connector } from './S3Connector';
 import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
 import { ExtensionsPanel } from './ExtensionsPanel';
 import { Badge } from './ui/badge';
-import { isBackendMode } from '@/lib/duckdb';
+import { isBackendMode, exportDuckDB } from '@/lib/duckdb';
 import { toast } from 'sonner';
 
 interface Column {
@@ -36,21 +36,15 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
 
   const toggleDatabase = (name: string) => {
     const newExpanded = new Set(expandedDatabases);
-    if (newExpanded.has(name)) {
-      newExpanded.delete(name);
-    } else {
-      newExpanded.add(name);
-    }
+    if (newExpanded.has(name)) newExpanded.delete(name);
+    else newExpanded.add(name);
     setExpandedDatabases(newExpanded);
   };
 
   const toggleTable = (name: string) => {
     const newExpanded = new Set(expandedTables);
-    if (newExpanded.has(name)) {
-      newExpanded.delete(name);
-    } else {
-      newExpanded.add(name);
-    }
+    if (newExpanded.has(name)) newExpanded.delete(name);
+    else newExpanded.add(name);
     setExpandedTables(newExpanded);
   };
 
@@ -64,11 +58,26 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
   };
 
   const formatCount = (count: number | bigint) => {
-    // Convert BigInt to Number to avoid "Cannot mix BigInt and other types" errors
     const numCount = typeof count === 'bigint' ? Number(count) : count;
     if (numCount >= 1000000) return `${(numCount / 1000000).toFixed(1)}M`;
     if (numCount >= 1000) return `${(numCount / 1000).toFixed(1)}k`;
     return numCount.toString();
+  };
+
+  const handleDownloadDB = async () => {
+    try {
+      toast.loading('Exporting database...', { id: 'export' });
+      const blob = await exportDuckDB();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = isBackendMode() ? 'duckdb_lab_export.duckdb' : 'duckdb_lab_export.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Database exported!', { id: 'export' });
+    } catch (err: any) {
+      toast.error(`Export failed: ${err.message}`, { id: 'export' });
+    }
   };
 
   return (
@@ -79,10 +88,9 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
           <Database className="w-5 h-5 text-sidebar-primary" />
           <h1 className="font-semibold text-sm">DuckDB Lab</h1>
           <Badge variant={isBackendMode() ? 'default' : 'secondary'} className="text-[10px] h-4 px-1 ml-auto">
-            {isBackendMode() ? 'Backend' : 'WASM'}
+            {isBackendMode() ? 'Server' : 'WASM'}
           </Badge>
         </div>
-        
         <div className="mt-1 pl-4 text-xs text-sidebar-foreground/80">
           Interactive SQL Workspace
         </div>
@@ -93,28 +101,17 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
         <div className="p-2">
           <div className="flex items-center justify-between px-2 py-1.5 text-xs font-medium text-sidebar-foreground/60">
             <span>Attached databases</span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-5 w-5"
-              disabled
-              title="Attach database feature coming soon"
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5" disabled title="Attach database feature coming soon">
               <Plus className="w-3 h-3" />
             </Button>
           </div>
 
-          {/* Memory Database */}
           <div className="mt-1">
             <button
               onClick={() => toggleDatabase('memory')}
               className="flex items-center gap-1.5 px-2 py-1.5 w-full hover:bg-sidebar-accent rounded text-xs"
             >
-              {expandedDatabases.has('memory') ? (
-                <ChevronDown className="w-3 h-3" />
-              ) : (
-                <ChevronRight className="w-3 h-3" />
-              )}
+              {expandedDatabases.has('memory') ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               <Database className="w-3 h-3 text-sidebar-primary" />
               <span>memory</span>
             </button>
@@ -132,11 +129,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                         onClick={() => toggleTable(table.name)}
                         className="flex items-center gap-1.5 px-2 py-1.5 flex-1 min-w-0 hover:bg-sidebar-accent rounded text-xs"
                       >
-                        {expandedTables.has(table.name) ? (
-                          <ChevronDown className="w-3 h-3 shrink-0" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3 shrink-0" />
-                        )}
+                        {expandedTables.has(table.name) ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                         <Table2 className="w-3 h-3 shrink-0 text-sidebar-primary" />
                         <span className="flex-1 text-left truncate min-w-0" title={table.name}>{table.name}</span>
                         <span className="text-xs text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0 ml-1">
@@ -145,50 +138,19 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                       </button>
                       <div className="flex items-center opacity-0 group-hover:opacity-100 shrink-0">
                         {onTableDetails && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => onTableDetails(table.name)}
-                            title="Table Details"
-                          >
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onTableDetails(table.name)} title="Table Details">
                             <Info className="w-3 h-3" />
                           </Button>
                         )}
                         {onOpenInEditor && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => onOpenInEditor(table.name)}
-                            title="Edit Table Data"
-                          >
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onOpenInEditor(table.name)} title="Edit Table Data">
                             <Edit className="w-3 h-3" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => {
-                            navigator.clipboard.writeText(table.name);
-                            toast.success(`Copied "${table.name}"`);
-                          }}
-                          title="Copy table name"
-                        >
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(table.name); toast.success(`Copied "${table.name}"`); }} title="Copy table name">
                           <Copy className="w-3 h-3" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => {
-                            if (!onDeleteTable) return;
-                            const ok = confirm(`Delete table "${table.name}"? This cannot be undone.`);
-                            if (ok) onDeleteTable(table.name);
-                          }}
-                          title="Delete table"
-                        >
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { if (!onDeleteTable) return; const ok = confirm(`Delete table "${table.name}"?`); if (ok) onDeleteTable(table.name); }} title="Delete table">
                           <X className="w-3 h-3" />
                         </Button>
                       </div>
@@ -197,20 +159,12 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                     {expandedTables.has(table.name) && (
                       <div className="ml-6 mt-1 space-y-1 pb-2">
                         {table.columns.map((col) => (
-                          <div
-                            key={col.name}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-sidebar-accent rounded cursor-pointer group min-w-0"
-                          >
+                          <div key={col.name} className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-sidebar-accent rounded cursor-pointer group min-w-0">
                             <span className="text-sidebar-foreground/60 shrink-0">{getColumnIcon(col.type)}</span>
                             <span className="flex-1 text-sidebar-foreground/80 truncate min-w-0" title={col.name}>{col.name}</span>
                             {col.uniqueCount !== undefined && (
                               <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0">
                                 {formatCount(col.uniqueCount)}
-                              </span>
-                            )}
-                            {col.completeness !== undefined && col.completeness < 100 && (
-                              <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0">
-                                {col.completeness}%
                               </span>
                             )}
                           </div>
@@ -230,15 +184,20 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
         <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
         <DuckDBFileAttacher onAttach={onRefresh} />
         <DatabaseConnector onImportComplete={onImportComplete} />
+        <S3Connector onImportComplete={onImportComplete} />
         <ExtensionsPanel />
         <NotebookManagerEnhanced onNotebookSelect={onNotebookSelect} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
+          onClick={handleDownloadDB}
+          title="Download Database"
+        >
+          <Download className="w-3.5 h-3.5" />
+        </Button>
         {onRefresh && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
-            onClick={onRefresh}
-          >
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent" onClick={onRefresh}>
             <RefreshCw className="w-3.5 h-3.5" />
           </Button>
         )}

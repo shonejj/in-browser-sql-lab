@@ -1,11 +1,12 @@
 """
 DuckDB Lab - FastAPI Backend Service
 Provides native DuckDB with full extension support (MySQL, PostgreSQL, httpfs, excel, etc.)
-Run: uvicorn main:app --host 0.0.0.0 --port 8000
+Run: uvicorn main:app --host 0.0.0.0 --port 9876
 """
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Any
 import duckdb
@@ -13,8 +14,10 @@ import json
 import os
 import tempfile
 import traceback
+import uuid
+import shutil
 
-app = FastAPI(title="DuckDB Lab Backend", version="1.0.0")
+app = FastAPI(title="DuckDB Lab Backend", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,17 +27,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Data directory for persistent storage
+DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
 # Global DuckDB connection
-db_path = os.environ.get("DUCKDB_PATH", ":memory:")
+db_path = os.environ.get("DUCKDB_PATH", os.path.join(DATA_DIR, "main.duckdb"))
 con = duckdb.connect(db_path)
 
 # Pre-install common extensions
-for ext in ["httpfs", "json", "parquet", "excel", "fts"]:
+for ext in ["httpfs", "json", "parquet", "excel", "fts", "mysql", "postgres"]:
     try:
         con.execute(f"INSTALL '{ext}'; LOAD '{ext}';")
     except Exception:
         pass
 
+# Initialize meta schema for storing connections
+try:
+    con.execute("CREATE SCHEMA IF NOT EXISTS _meta")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS _meta.connections (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            type VARCHAR NOT NULL,
+            host VARCHAR,
+            port INTEGER,
+            database_name VARCHAR,
+            username VARCHAR,
+            password VARCHAR,
+            path VARCHAR,
+            s3_endpoint VARCHAR,
+            s3_access_key VARCHAR,
+            s3_secret_key VARCHAR,
+            s3_bucket VARCHAR,
+            s3_region VARCHAR,
+            created_at TIMESTAMP DEFAULT current_timestamp
+        )
+    """)
+except Exception:
+    pass
+
+
+# ─── Models ───────────────────────────────────────────────────────────────────
 
 class QueryRequest(BaseModel):
     query: str
@@ -52,8 +86,53 @@ class AttachRequest(BaseModel):
 
 class ExtensionRequest(BaseModel):
     name: str
-    action: str = "install_and_load"  # install, load, install_and_load
+    action: str = "install_and_load"
 
+
+class S3ConfigRequest(BaseModel):
+    endpoint: str  # e.g. localhost:9000
+    access_key: str
+    secret_key: str
+    region: Optional[str] = "us-east-1"
+    use_ssl: Optional[bool] = False
+    url_style: Optional[str] = "path"  # path or vhost
+
+
+class S3ListRequest(BaseModel):
+    bucket: str
+    prefix: Optional[str] = ""
+
+
+class S3ImportRequest(BaseModel):
+    bucket: str
+    key: str
+    table_name: str
+    overwrite: Optional[bool] = False
+
+
+class S3ExportRequest(BaseModel):
+    bucket: str
+    key: str
+    query: Optional[str] = None  # If provided, export query results; otherwise export full DB
+
+
+class ConnectionSaveRequest(BaseModel):
+    name: str
+    type: str
+    host: Optional[str] = None
+    port: Optional[int] = None
+    database_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    path: Optional[str] = None
+    s3_endpoint: Optional[str] = None
+    s3_access_key: Optional[str] = None
+    s3_secret_key: Optional[str] = None
+    s3_bucket: Optional[str] = None
+    s3_region: Optional[str] = None
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def serialize_row(row, columns):
     """Convert a row to a JSON-safe dict."""
@@ -67,6 +146,8 @@ def serialize_row(row, columns):
         result[col] = val
     return result
 
+
+# ─── Core Endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():
@@ -90,7 +171,11 @@ def run_query(req: QueryRequest):
 @app.get("/api/tables")
 def list_tables():
     try:
-        result = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
+        result = con.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'main' AND table_name NOT LIKE '_meta%'
+        """)
         tables = []
         for row in result.fetchall():
             name = row[0]
@@ -164,6 +249,8 @@ async def import_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ─── Database Attach ─────────────────────────────────────────────────────────
+
 @app.post("/api/attach")
 def attach_database(req: AttachRequest):
     try:
@@ -189,6 +276,8 @@ def attach_database(req: AttachRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ─── Extensions ──────────────────────────────────────────────────────────────
+
 @app.post("/api/extensions")
 def manage_extension(req: ExtensionRequest):
     try:
@@ -211,6 +300,149 @@ def list_extensions():
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ─── S3 / MinIO Endpoints ───────────────────────────────────────────────────
+
+@app.post("/api/s3/configure")
+def configure_s3(req: S3ConfigRequest):
+    try:
+        proto = "https" if req.use_ssl else "http"
+        con.execute(f"SET s3_endpoint='{req.endpoint}';")
+        con.execute(f"SET s3_access_key_id='{req.access_key}';")
+        con.execute(f"SET s3_secret_access_key='{req.secret_key}';")
+        con.execute(f"SET s3_region='{req.region}';")
+        con.execute(f"SET s3_url_style='{req.url_style}';")
+        con.execute(f"SET s3_use_ssl={'true' if req.use_ssl else 'false'};")
+        return {"message": "S3/MinIO configured successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/s3/list")
+def list_s3_objects(req: S3ListRequest):
+    try:
+        # Use DuckDB's glob to list files in S3
+        prefix = f"s3://{req.bucket}/{req.prefix}*" if req.prefix else f"s3://{req.bucket}/*"
+        result = con.execute(f"SELECT file FROM glob('{prefix}')").fetchall()
+        files = [r[0] for r in result]
+        return {"files": files, "count": len(files)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/s3/import")
+def import_from_s3(req: S3ImportRequest):
+    try:
+        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in req.table_name)
+        s3_path = f"s3://{req.bucket}/{req.key}"
+
+        if req.overwrite:
+            con.execute(f'DROP TABLE IF EXISTS "{safe_name}"')
+
+        ext = os.path.splitext(req.key)[1].lower()
+        if ext in (".csv", ".tsv"):
+            con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_csv_auto('{s3_path}')")
+        elif ext == ".parquet":
+            con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_parquet('{s3_path}')")
+        elif ext in (".json", ".jsonl", ".ndjson"):
+            con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_json_auto('{s3_path}')")
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file format: {ext}")
+
+        count = con.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+        return {"message": f"Imported {count} rows from S3 into {safe_name}", "table": safe_name, "rowCount": count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/s3/export")
+def export_to_s3(req: S3ExportRequest):
+    try:
+        s3_path = f"s3://{req.bucket}/{req.key}"
+        ext = os.path.splitext(req.key)[1].lower()
+
+        if req.query:
+            if ext == ".parquet":
+                con.execute(f"COPY ({req.query}) TO '{s3_path}' (FORMAT PARQUET)")
+            else:
+                con.execute(f"COPY ({req.query}) TO '{s3_path}' (FORMAT CSV, HEADER)")
+        else:
+            # Export entire database
+            con.execute(f"EXPORT DATABASE '{s3_path}'")
+
+        return {"message": f"Exported to {s3_path}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── DB Export / Download ────────────────────────────────────────────────────
+
+@app.post("/api/export/duckdb")
+def export_duckdb():
+    """Export current database as a downloadable .duckdb file."""
+    try:
+        export_path = os.path.join(DATA_DIR, f"export_{uuid.uuid4().hex[:8]}.duckdb")
+        # Checkpoint to flush WAL
+        con.execute("CHECKPOINT")
+        # Copy the database file
+        shutil.copy2(db_path, export_path)
+        return FileResponse(
+            export_path,
+            media_type="application/octet-stream",
+            filename="duckdb_lab_export.duckdb",
+            background=None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── Saved Connections CRUD ──────────────────────────────────────────────────
+
+@app.get("/api/connections")
+def list_connections():
+    try:
+        result = con.execute("""
+            SELECT id, name, type, host, port, database_name, username, 
+                   s3_endpoint, s3_bucket, s3_region, created_at
+            FROM _meta.connections ORDER BY created_at DESC
+        """)
+        columns = [desc[0] for desc in result.description]
+        rows = result.fetchall()
+        connections = [serialize_row(row, columns) for row in rows]
+        return {"connections": connections}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/connections")
+def save_connection(req: ConnectionSaveRequest):
+    try:
+        conn_id = str(uuid.uuid4())
+        con.execute("""
+            INSERT INTO _meta.connections 
+            (id, name, type, host, port, database_name, username, password, path,
+             s3_endpoint, s3_access_key, s3_secret_key, s3_bucket, s3_region)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            conn_id, req.name, req.type, req.host, req.port, req.database_name,
+            req.username, req.password, req.path,
+            req.s3_endpoint, req.s3_access_key, req.s3_secret_key, req.s3_bucket, req.s3_region,
+        ])
+        return {"id": conn_id, "message": f"Connection '{req.name}' saved"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/connections/{conn_id}")
+def delete_connection(conn_id: str):
+    try:
+        con.execute("DELETE FROM _meta.connections WHERE id = ?", [conn_id])
+        return {"message": "Connection deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=9876)
