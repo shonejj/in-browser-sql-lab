@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Database, Upload, Link2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Database, Link2, AlertCircle, Cloud, HardDrive, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getConnection, executeQuery, isBackendMode, backendAttachDatabase } from '@/lib/duckdb';
+import { 
+  getConnection, executeQuery, isBackendMode, backendAttachDatabase,
+  backendListConnections, backendSaveConnection, backendDeleteConnection
+} from '@/lib/duckdb';
+import { Badge } from './ui/badge';
 
 interface DatabaseConnectorProps {
   onImportComplete?: () => void;
@@ -25,6 +28,16 @@ interface ConnectionConfig {
   file?: File;
 }
 
+interface SavedConnection {
+  id: string;
+  name: string;
+  type: string;
+  host?: string;
+  port?: number;
+  database_name?: string;
+  username?: string;
+}
+
 export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) {
   const [open, setOpen] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -40,42 +53,39 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const [availableTables, setAvailableTables] = useState<string[]>([]);
   const [connectionStep, setConnectionStep] = useState<'config' | 'select' | 'importing'>('config');
+  const [savedConnections, setSavedConnections] = useState<SavedConnection[]>([]);
+  const [connectionName, setConnectionName] = useState('');
 
-  // Sample database connections for testing
-  const sampleConnections = {
-    mysql: {
-      name: 'Sample MySQL (Chinook)',
-      host: 'mysql-rfam-public.ebi.ac.uk',
-      port: '4497',
-      database: 'Rfam',
-      username: 'rfamro',
-      password: '',
-      note: 'Public Rfam database from EBI'
-    },
-    postgresql: {
-      name: 'Sample PostgreSQL',
-      host: 'demo.enterprisedb.com',
-      port: '5432',
-      database: 'postgres',
-      username: 'enterprisedb',
-      password: 'PostgreSQL123',
-      note: 'EnterpriseDB demo database (may have limited access)'
+  const backend = isBackendMode();
+
+  // Load saved connections when dialog opens in backend mode
+  useEffect(() => {
+    if (open && backend) {
+      loadSavedConnections();
     }
-  };
+  }, [open, backend]);
 
-  const loadSampleConnection = (type: 'mysql' | 'postgresql') => {
-    const sample = sampleConnections[type];
-    setConfig({
-      type,
-      host: sample.host,
-      port: sample.port,
-      database: sample.database,
-      username: sample.username,
-      password: sample.password,
-    });
-    setConnectionType(type);
-    toast.info(`Loaded ${sample.name}. Click Connect to test.`);
-  };
+  async function loadSavedConnections() {
+    try {
+      const conns = await backendListConnections();
+      setSavedConnections(conns || []);
+    } catch {
+      // ignore
+    }
+  }
+
+  // Docker compose defaults
+  const quickConnections = [
+    {
+      label: 'Docker MySQL (sampledb)',
+      type: 'mysql' as ConnectionType,
+      host: 'mysql',
+      port: '3306',
+      database: 'sampledb',
+      username: 'duckdb',
+      password: 'duckdblab',
+    },
+  ];
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -113,14 +123,10 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
       const fileName = config.file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
       const dbPath = `/${fileName}`;
       
-      // Register the file with DuckDB WASM
       await db.registerFileBuffer(dbPath, uint8Array);
       
-      // Try to attach the database
       try {
         await executeQuery(`ATTACH '${dbPath}' AS attached_db`);
-        
-        // Get tables from the attached database
         const tables = await executeQuery(`
           SELECT table_name 
           FROM attached_db.information_schema.tables 
@@ -130,28 +136,23 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
         if (tables.length > 0) {
           setAvailableTables(tables.map(t => t.table_name));
           setConnectionStep('select');
-          toast.success(`Found ${tables.length} table(s)! Select tables to import.`);
+          toast.success(`Found ${tables.length} table(s)!`);
         } else {
           toast.error('No tables found in the database file');
         }
-      } catch (error: any) {
-        // If attach fails, try reading as SQLite
+      } catch {
         try {
           await executeQuery(`INSTALL sqlite; LOAD sqlite;`);
           await executeQuery(`ATTACH '${dbPath}' AS attached_db (TYPE SQLITE)`);
-          
           const tables = await executeQuery(`
-            SELECT name as table_name 
-            FROM attached_db.sqlite_master 
-            WHERE type='table'
+            SELECT name as table_name FROM attached_db.sqlite_master WHERE type='table'
           `);
-          
           if (tables.length > 0) {
             setAvailableTables(tables.map(t => t.table_name));
             setConnectionStep('select');
-            toast.success(`Found ${tables.length} table(s)! Select tables to import.`);
+            toast.success(`Found ${tables.length} table(s)!`);
           } else {
-            toast.error('No tables found in the database file');
+            toast.error('No tables found');
           }
         } catch (sqliteError: any) {
           toast.error(`Failed to read database: ${sqliteError.message}`);
@@ -164,10 +165,8 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
     }
   };
 
-
   const handleRemoteDatabaseConnect = async () => {
-    if (isBackendMode()) {
-      // Backend mode: real DB connections via DuckDB extensions
+    if (backend) {
       toast.info('Connecting via backend...');
       try {
         const result = await backendAttachDatabase({
@@ -180,9 +179,10 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
         });
         toast.success(result.message);
 
-        // List tables from attached database
         const alias = result.alias;
-        const tables = await executeQuery(`SELECT table_name FROM ${alias}.information_schema.tables WHERE table_schema = 'main' OR table_schema = 'public'`);
+        const tables = await executeQuery(
+          `SELECT table_name FROM ${alias}.information_schema.tables WHERE table_schema = 'main' OR table_schema = 'public'`
+        );
         if (tables.length > 0) {
           setAvailableTables(tables.map((t: any) => t.table_name));
           setConnectionStep('select');
@@ -195,16 +195,15 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
       return;
     }
 
-    // WASM mode: not supported
     toast.error(
       'Direct database connections require the backend service. ' +
-      'Start the FastAPI backend (see backend/README.md) or export data as CSV/Parquet.'
+      'Start the Docker stack (docker-compose up) or switch to Server mode.'
     );
   };
 
   const handleImportTables = async () => {
     if (selectedTables.length === 0) {
-      toast.error('Please select at least one table to import');
+      toast.error('Please select at least one table');
       return;
     }
 
@@ -213,37 +212,160 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
     try {
       for (const table of selectedTables) {
         const sanitizedName = table.replace(/[^a-zA-Z0-9_]/g, '_');
-        
-        // Import from attached database
         await executeQuery(`CREATE TABLE ${sanitizedName} AS SELECT * FROM attached_db.${table}`);
         toast.success(`Imported table: ${sanitizedName}`);
       }
       
-      // Detach the database
-      try {
-        await executeQuery(`DETACH attached_db`);
-      } catch (e) {
-        // Ignore detach errors
-      }
+      try { await executeQuery(`DETACH attached_db`); } catch {}
       
-      toast.success(`Successfully imported ${selectedTables.length} table(s)!`);
+      toast.success(`Imported ${selectedTables.length} table(s)!`);
       setOpen(false);
       if (onImportComplete) onImportComplete();
-      
-      // Reset state
-      setConnectionStep('config');
-      setSelectedTables([]);
-      setAvailableTables([]);
+      resetConnection();
     } catch (error: any) {
       toast.error(`Import failed: ${error.message}`);
       setConnectionStep('select');
     }
   };
 
+  const handleSaveConnection = async () => {
+    if (!connectionName.trim()) {
+      toast.error('Please enter a connection name');
+      return;
+    }
+    try {
+      await backendSaveConnection({
+        name: connectionName,
+        type: connectionType,
+        host: config.host,
+        port: config.port ? parseInt(config.port) : undefined,
+        database_name: config.database,
+        username: config.username,
+        password: config.password,
+      });
+      toast.success('Connection saved');
+      setConnectionName('');
+      loadSavedConnections();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleDeleteSavedConnection = async (id: string) => {
+    try {
+      await backendDeleteConnection(id);
+      toast.success('Connection deleted');
+      loadSavedConnections();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleLoadSavedConnection = (conn: SavedConnection) => {
+    setConnectionType(conn.type as ConnectionType);
+    setConfig({
+      type: conn.type as ConnectionType,
+      host: conn.host || 'localhost',
+      port: conn.port?.toString() || '3306',
+      database: conn.database_name || '',
+      username: conn.username || '',
+      password: '',
+    });
+    toast.info(`Loaded connection: ${conn.name}`);
+  };
+
   const resetConnection = () => {
     setConnectionStep('config');
     setSelectedTables([]);
     setAvailableTables([]);
+    setConnectionName('');
+  };
+
+  const applyQuickConnection = (qc: typeof quickConnections[0]) => {
+    setConnectionType(qc.type);
+    setConfig({
+      type: qc.type,
+      host: qc.host,
+      port: qc.port,
+      database: qc.database,
+      username: qc.username,
+      password: qc.password,
+    });
+    toast.info(`Loaded: ${qc.label}`);
+  };
+
+  const renderConnectionForm = (type: 'mysql' | 'postgresql') => {
+    const defaultPort = type === 'mysql' ? '3306' : '5432';
+    return (
+      <div className="space-y-4">
+        {!backend && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
+            <div className="flex gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-medium text-amber-900 dark:text-amber-100">WASM Mode</p>
+                <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                  Direct {type === 'mysql' ? 'MySQL' : 'PostgreSQL'} connections require Server mode. 
+                  Switch to Server mode or export data as CSV/Parquet.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        {backend && (
+          <div className="flex flex-wrap gap-1.5">
+            {quickConnections
+              .filter(qc => qc.type === type)
+              .map(qc => (
+                <Button 
+                  key={qc.label} 
+                  variant="outline" 
+                  size="sm" 
+                  className="text-xs h-7"
+                  onClick={() => applyQuickConnection(qc)}
+                >
+                  <HardDrive className="w-3 h-3 mr-1" /> {qc.label}
+                </Button>
+              ))}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>Host</Label>
+            <Input value={config.host} onChange={(e) => setConfig({ ...config, host: e.target.value })} placeholder="localhost" />
+          </div>
+          <div>
+            <Label>Port</Label>
+            <Input value={config.port} onChange={(e) => setConfig({ ...config, port: e.target.value })} placeholder={defaultPort} />
+          </div>
+        </div>
+        <div>
+          <Label>Database</Label>
+          <Input value={config.database} onChange={(e) => setConfig({ ...config, database: e.target.value })} placeholder="database_name" />
+        </div>
+        <div>
+          <Label>Username</Label>
+          <Input value={config.username} onChange={(e) => setConfig({ ...config, username: e.target.value })} placeholder={type === 'mysql' ? 'root' : 'postgres'} />
+        </div>
+        <div>
+          <Label>Password</Label>
+          <Input type="password" value={config.password} onChange={(e) => setConfig({ ...config, password: e.target.value })} placeholder="••••••••" />
+        </div>
+        {backend && (
+          <div className="flex items-center gap-2">
+            <Input
+              value={connectionName}
+              onChange={(e) => setConnectionName(e.target.value)}
+              placeholder="Save as..."
+              className="flex-1"
+            />
+            <Button variant="outline" size="sm" onClick={handleSaveConnection} disabled={!connectionName.trim()}>
+              Save
+            </Button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -259,16 +381,49 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Database className="w-5 h-5" />
               Database Connector
+              <Badge variant={backend ? 'default' : 'secondary'} className="text-[10px] h-4 px-1.5 ml-2">
+                {backend ? 'Server' : 'WASM'}
+              </Badge>
             </DialogTitle>
           </DialogHeader>
 
           {connectionStep === 'config' && (
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-2">
+              {/* Saved connections */}
+              {backend && savedConnections.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Saved Connections</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {savedConnections.map(sc => (
+                      <div key={sc.id} className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => handleLoadSavedConnection(sc)}
+                        >
+                          <Cloud className="w-3 h-3 mr-1" />
+                          {sc.name}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => handleDeleteSavedConnection(sc.id)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <Tabs value={connectionType} onValueChange={(v) => setConnectionType(v as ConnectionType)}>
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="duckdb-file">DuckDB File</TabsTrigger>
@@ -279,147 +434,15 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
                 <TabsContent value="duckdb-file" className="space-y-4">
                   <div>
                     <Label>Upload DuckDB or SQLite Database File</Label>
-                    <Input
-                      type="file"
-                      accept=".db,.duckdb,.sqlite,.sqlite3"
-                      onChange={handleFileSelect}
-                      className="mt-2"
-                    />
+                    <Input type="file" accept=".db,.duckdb,.sqlite,.sqlite3" onChange={handleFileSelect} className="mt-2" />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Supported formats: .db, .duckdb, .sqlite, .sqlite3
+                      Supported: .db, .duckdb, .sqlite, .sqlite3
                     </p>
                   </div>
                 </TabsContent>
 
-                <TabsContent value="mysql" className="space-y-4">
-                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
-                    <div className="flex gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-xs font-medium text-amber-900 dark:text-amber-100">Browser Limitation</p>
-                        <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
-                          Direct MySQL connections are not supported in browser. Please export your data as CSV, Parquet, or DuckDB file and use the file upload option instead.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>Host</Label>
-                      <Input
-                        value={config.host}
-                        onChange={(e) => setConfig({ ...config, host: e.target.value })}
-                        placeholder="localhost"
-                      />
-                    </div>
-                    <div>
-                      <Label>Port</Label>
-                      <Input
-                        value={config.port}
-                        onChange={(e) => setConfig({ ...config, port: e.target.value })}
-                        placeholder="3306"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Database</Label>
-                    <Input
-                      value={config.database}
-                      onChange={(e) => setConfig({ ...config, database: e.target.value })}
-                      placeholder="database_name"
-                    />
-                  </div>
-                  <div>
-                    <Label>Username</Label>
-                    <Input
-                      value={config.username}
-                      onChange={(e) => setConfig({ ...config, username: e.target.value })}
-                      placeholder="root"
-                    />
-                  </div>
-                  <div>
-                    <Label>Password</Label>
-                    <Input
-                      type="password"
-                      value={config.password}
-                      onChange={(e) => setConfig({ ...config, password: e.target.value })}
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
-                    <div className="flex gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-800 dark:text-amber-200">
-                        Note: Remote database connections require DuckDB extensions. Connection may be slow depending on your network and database size.
-                      </p>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="postgresql" className="space-y-4">
-                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
-                    <div className="flex gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-xs font-medium text-amber-900 dark:text-amber-100">Browser Limitation</p>
-                        <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
-                          Direct PostgreSQL connections are not supported in browser. Please export your data as CSV, Parquet, or DuckDB file and use the file upload option instead.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>Host</Label>
-                      <Input
-                        value={config.host}
-                        onChange={(e) => setConfig({ ...config, host: e.target.value })}
-                        placeholder="localhost"
-                      />
-                    </div>
-                    <div>
-                      <Label>Port</Label>
-                      <Input
-                        value={config.port}
-                        onChange={(e) => setConfig({ ...config, port: e.target.value })}
-                        placeholder="5432"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Database</Label>
-                    <Input
-                      value={config.database}
-                      onChange={(e) => setConfig({ ...config, database: e.target.value })}
-                      placeholder="database_name"
-                    />
-                  </div>
-                  <div>
-                    <Label>Username</Label>
-                    <Input
-                      value={config.username}
-                      onChange={(e) => setConfig({ ...config, username: e.target.value })}
-                      placeholder="postgres"
-                    />
-                  </div>
-                  <div>
-                    <Label>Password</Label>
-                    <Input
-                      type="password"
-                      value={config.password}
-                      onChange={(e) => setConfig({ ...config, password: e.target.value })}
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
-                    <div className="flex gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-800 dark:text-amber-200">
-                        Note: Remote database connections require DuckDB extensions. Connection may be slow depending on your network and database size.
-                      </p>
-                    </div>
-                  </div>
-                </TabsContent>
+                <TabsContent value="mysql">{renderConnectionForm('mysql')}</TabsContent>
+                <TabsContent value="postgresql">{renderConnectionForm('postgresql')}</TabsContent>
               </Tabs>
             </div>
           )}
@@ -428,17 +451,11 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
             <div className="space-y-4 py-4">
               <div className="flex items-center justify-between">
                 <h4 className="font-medium">Select Tables to Import</h4>
-                <Button variant="ghost" size="sm" onClick={resetConnection}>
-                  Back
-                </Button>
+                <Button variant="ghost" size="sm" onClick={resetConnection}>Back</Button>
               </div>
-              
               <div className="border rounded-lg divide-y max-h-96 overflow-auto">
                 {availableTables.map((table) => (
-                  <label
-                    key={table}
-                    className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer"
-                  >
+                  <label key={table} className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={selectedTables.includes(table)}
@@ -455,17 +472,10 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
                   </label>
                 ))}
               </div>
-
               <div className="flex items-center justify-between text-sm text-muted-foreground">
                 <span>{selectedTables.length} table(s) selected</span>
                 {selectedTables.length > 0 && (
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={() => setSelectedTables([])}
-                  >
-                    Clear selection
-                  </Button>
+                  <Button variant="link" size="sm" onClick={() => setSelectedTables([])}>Clear</Button>
                 )}
               </div>
             </div>
@@ -481,19 +491,14 @@ export function DatabaseConnector({ onImportComplete }: DatabaseConnectorProps) 
           <DialogFooter>
             {connectionStep === 'config' && (
               <>
-                <Button variant="outline" onClick={() => setOpen(false)}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
                 <Button onClick={handleConnect} disabled={connecting}>
                   {connecting ? 'Connecting...' : 'Connect'}
                 </Button>
               </>
             )}
             {connectionStep === 'select' && (
-              <Button 
-                onClick={handleImportTables}
-                disabled={selectedTables.length === 0}
-              >
+              <Button onClick={handleImportTables} disabled={selectedTables.length === 0}>
                 Import {selectedTables.length} Table(s)
               </Button>
             )}
