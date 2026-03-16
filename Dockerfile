@@ -3,10 +3,16 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install
+# Copy only package files first for better caching
+COPY package*.json ./
 
+# Install dependencies with legacy peer deps flag
+RUN npm install --legacy-peer-deps --omit=dev
+
+# Copy source code
 COPY . .
+
+# Build the app
 RUN npm run build
 
 # Stage 2: Serve with Nginx
