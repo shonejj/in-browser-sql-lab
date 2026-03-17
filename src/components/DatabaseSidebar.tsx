@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download } from 'lucide-react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download, FolderOpen, Plug, GitBranch } from 'lucide-react';
 import { Button } from './ui/button';
 import { CSVImporter } from './CSVImporter';
 import { DuckDBFileAttacher } from './DuckDBFileAttacher';
@@ -28,11 +28,14 @@ interface DatabaseSidebarProps {
   onImportComplete?: () => void;
   onTableDetails?: (tableName: string) => void;
   onNotebookSelect?: (id: string) => void;
+  onOpenFileManager?: () => void;
+  onOpenConnectors?: () => void;
+  onOpenWorkflows?: () => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete, onTableDetails, onNotebookSelect }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete, onTableDetails, onNotebookSelect, onOpenFileManager, onOpenConnectors, onOpenWorkflows }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(['trains']));
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 
   const toggleDatabase = (name: string) => {
     const newExpanded = new Set(expandedDatabases);
@@ -80,6 +83,8 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
     }
   };
 
+  const backend = isBackendMode();
+
   return (
     <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen border-r border-sidebar-border overflow-hidden">
       {/* Header */}
@@ -87,8 +92,8 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
         <div className="flex items-center gap-2 mb-2">
           <Database className="w-5 h-5 text-sidebar-primary" />
           <h1 className="font-semibold text-sm">DuckDB Lab</h1>
-          <Badge variant={isBackendMode() ? 'default' : 'secondary'} className="text-[10px] h-4 px-1 ml-auto">
-            {isBackendMode() ? 'Server' : 'WASM'}
+          <Badge variant={backend ? 'default' : 'secondary'} className="text-[10px] h-4 px-1 ml-auto">
+            {backend ? 'Server' : 'WASM'}
           </Badge>
         </div>
         <div className="mt-1 pl-4 text-xs text-sidebar-foreground/80">
@@ -121,6 +126,12 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                 <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-sidebar-foreground/60">
                   <span>main</span>
                 </div>
+
+                {tables.length === 0 && (
+                  <div className="px-2 py-3 text-xs text-sidebar-foreground/40 text-center">
+                    No tables yet. Load sample data or import a file.
+                  </div>
+                )}
 
                 {tables.map((table) => (
                   <div key={table.name} className="mt-0.5">
@@ -162,11 +173,6 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                           <div key={col.name} className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-sidebar-accent rounded cursor-pointer group min-w-0">
                             <span className="text-sidebar-foreground/60 shrink-0">{getColumnIcon(col.type)}</span>
                             <span className="flex-1 text-sidebar-foreground/80 truncate min-w-0" title={col.name}>{col.name}</span>
-                            {col.uniqueCount !== undefined && (
-                              <span className="text-[10px] text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70 shrink-0">
-                                {formatCount(col.uniqueCount)}
-                              </span>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -180,26 +186,41 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
       </div>
 
       {/* Footer Actions */}
-      <div className="p-2 border-t border-sidebar-border flex gap-1 flex-wrap">
-        <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
-        <DuckDBFileAttacher onAttach={onRefresh} />
-        <DatabaseConnector onImportComplete={onImportComplete} />
-        <S3Connector onImportComplete={onImportComplete} />
-        <ExtensionsPanel />
-        <NotebookManagerEnhanced onNotebookSelect={onNotebookSelect} />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
-          onClick={handleDownloadDB}
-          title="Download Database"
-        >
-          <Download className="w-3.5 h-3.5" />
-        </Button>
-        {onRefresh && (
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent" onClick={onRefresh}>
-            <RefreshCw className="w-3.5 h-3.5" />
+      <div className="p-2 border-t border-sidebar-border space-y-1">
+        <div className="flex gap-1 flex-wrap">
+          <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
+          <DuckDBFileAttacher onAttach={onRefresh} />
+          <DatabaseConnector onImportComplete={onImportComplete} />
+          <S3Connector onImportComplete={onImportComplete} />
+          <ExtensionsPanel />
+          <NotebookManagerEnhanced onNotebookSelect={onNotebookSelect} />
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent" onClick={handleDownloadDB} title="Download Database">
+            <Download className="w-3.5 h-3.5" />
           </Button>
+          {onRefresh && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent" onClick={onRefresh}>
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+        {backend && (
+          <div className="flex gap-1">
+            {onOpenFileManager && (
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-sidebar-foreground hover:bg-sidebar-accent flex-1" onClick={onOpenFileManager}>
+                <FolderOpen className="w-3 h-3 mr-1" /> Files
+              </Button>
+            )}
+            {onOpenConnectors && (
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-sidebar-foreground hover:bg-sidebar-accent flex-1" onClick={onOpenConnectors}>
+                <Plug className="w-3 h-3 mr-1" /> Connectors
+              </Button>
+            )}
+            {onOpenWorkflows && (
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-sidebar-foreground hover:bg-sidebar-accent flex-1" onClick={onOpenWorkflows}>
+                <GitBranch className="w-3 h-3 mr-1" /> Workflows
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>

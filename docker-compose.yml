@@ -23,6 +23,14 @@ services:
     environment:
       - DUCKDB_PATH=/app/data/main.duckdb
       - DATA_DIR=/app/data
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_DEFAULT_BUCKET=duckdb-data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - minio
     networks:
       - duckdb-net
 
@@ -72,10 +80,49 @@ services:
     networks:
       - duckdb-net
 
+  # ─── Temporal (workflow orchestration) ────────────────────────────────────
+  temporal-db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal-db-data:/var/lib/postgresql/data
+    networks:
+      - duckdb-net
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
+    depends_on:
+      - temporal-db
+    networks:
+      - duckdb-net
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    ports:
+      - "8088:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      - temporal
+    networks:
+      - duckdb-net
+
 volumes:
   duckdb-data:
   mysql-data:
   minio-data:
+  temporal-db-data:
 
 networks:
   duckdb-net:

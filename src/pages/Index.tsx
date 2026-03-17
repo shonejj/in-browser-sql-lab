@@ -10,21 +10,31 @@ import { DataToolbar } from '@/components/DataToolbar';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
 import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
+import { FileManager } from '@/components/FileManager';
+import { ConnectorsPanel } from '@/components/ConnectorsPanel';
+import { WorkflowBuilder } from '@/components/WorkflowBuilder';
 import { 
-  initDuckDB, executeQuery, importCSVFile, isBackendMode, 
+  initDuckDB, executeQuery, isBackendMode, 
   getBackendUrl, setBackendUrl, forceWasmMode, forceBackendMode, setAutoMode,
-  getForceMode
+  getForceMode, backendListTables
 } from '@/lib/duckdb';
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { getNotebook, saveNotebook, type NotebookDoc } from '@/lib/notebooks';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download, Server, Monitor, Settings2 } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download, Server, Monitor, Settings2, FolderOpen, Plug, GitBranch, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 
 interface QueryCell {
   id: string;
@@ -55,6 +65,11 @@ const Index = () => {
   const [backendUrlInput, setBackendUrlInput] = useState(getBackendUrl());
   const [currentMode, setCurrentMode] = useState<'wasm' | 'backend'>(isBackendMode() ? 'backend' : 'wasm');
 
+  // Feature dialogs
+  const [fileManagerOpen, setFileManagerOpen] = useState(false);
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [workflowsOpen, setWorkflowsOpen] = useState(false);
+
   useEffect(() => {
     if (!isInitializingRef.current && !isInitialized) {
       initializeDatabase();
@@ -70,39 +85,11 @@ const Index = () => {
       
       await initDuckDB();
       setCurrentMode(isBackendMode() ? 'backend' : 'wasm');
-      
-      const trainData = generateTrainData(1000);
-      
-      await executeQuery(`
-        CREATE TABLE IF NOT EXISTS trains (
-          service_id INTEGER,
-          date DATE,
-          type VARCHAR,
-          train_number INTEGER,
-          station_code VARCHAR,
-          station_name VARCHAR,
-          departure_time TIMESTAMP,
-          arrival_time TIMESTAMP
-        )
-      `);
-
-      const batchSize = 500;
-      for (let i = 0; i < trainData.length; i += batchSize) {
-        const batch = trainData.slice(i, i + batchSize);
-        const values = batch.map(row => 
-          `(${row.service_id}, '${row.date}', '${row.type}', ${row.train_number}, '${row.station_code}', '${row.station_name}', ${row.departure_time ? `'${row.departure_time}'` : 'NULL'}, ${row.arrival_time ? `'${row.arrival_time}'` : 'NULL'})`
-        ).join(',');
-        
-        await executeQuery(`INSERT INTO trains VALUES ${values}`);
-      }
 
       setIsInitialized(true);
       toast.success(`Database initialized (${isBackendMode() ? 'Server' : 'WASM'} mode)`, { id: 'init' });
       
       await refreshTables();
-      
-      const tablesResult = await executeQuery("SELECT name FROM sqlite_master WHERE type='table'");
-      (window as any).__duckdb_tables__ = tablesResult.map((t: any) => t.name);
     } catch (error) {
       console.error('Failed to initialize database:', error);
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
@@ -124,6 +111,7 @@ const Index = () => {
       }
       setCurrentMode(mode);
       setModeDialogOpen(false);
+      await refreshTables();
     } catch (err: any) {
       toast.error(`Mode switch failed: ${err.message}`, { id: 'mode' });
     }
@@ -187,6 +175,12 @@ const Index = () => {
       }
       
       toast.success(`Query executed: ${result.length} rows in ${executionTime}ms`);
+
+      // Refresh tables in case query modified schema
+      const q = cell.query.trim().toUpperCase();
+      if (q.startsWith('CREATE') || q.startsWith('DROP') || q.startsWith('ALTER') || q.startsWith('INSERT')) {
+        await refreshTables();
+      }
     } catch (error: any) {
       console.error('Query error:', error);
       setCells(prev => prev.map(c => c.id === cellId ? { ...c, isExecuting: false } : c));
@@ -240,18 +234,28 @@ const Index = () => {
 
   async function refreshTables() {
     try {
-      const tablesResult = await executeQuery("SELECT name FROM sqlite_master WHERE type='table'");
-      const tablesData = [];
-      for (const tableRow of tablesResult) {
-        const tableName = tableRow.name;
-        const countResult = await executeQuery(`SELECT COUNT(*) as count FROM ${tableName}`);
-        const rowCount = countResult[0].count;
-        const columnsResult = await executeQuery(`PRAGMA table_info('${tableName}')`);
-        const columns = columnsResult.map((col: any) => ({ name: col.name, type: col.type }));
-        tablesData.push({ name: tableName, rowCount, columns });
+      if (isBackendMode()) {
+        // Use dedicated backend endpoint
+        const backendTables = await backendListTables();
+        setTables(backendTables || []);
+        (window as any).__duckdb_tables__ = (backendTables || []).map((t: any) => t.name);
+      } else {
+        // WASM mode: use information_schema
+        const tablesResult = await executeQuery(
+          "SELECT table_name as name FROM information_schema.tables WHERE table_schema = 'main'"
+        );
+        const tablesData = [];
+        for (const tableRow of tablesResult) {
+          const tableName = tableRow.name;
+          const countResult = await executeQuery(`SELECT COUNT(*) as count FROM "${tableName}"`);
+          const rowCount = countResult[0].count;
+          const columnsResult = await executeQuery(`PRAGMA table_info('${tableName}')`);
+          const columns = columnsResult.map((col: any) => ({ name: col.name, type: col.type }));
+          tablesData.push({ name: tableName, rowCount, columns });
+        }
+        setTables(tablesData);
+        (window as any).__duckdb_tables__ = tablesData.map(t => t.name);
       }
-      setTables(tablesData);
-      (window as any).__duckdb_tables__ = tablesData.map(t => t.name);
     } catch (error) {
       console.error('Failed to refresh tables:', error);
     }
@@ -262,16 +266,27 @@ const Index = () => {
       if (data && data.length === 1 && data[0] instanceof File) {
         const file = data[0] as File;
         if (opts?.overwrite) await executeQuery(`DROP TABLE IF EXISTS "${tableName.replace(/"/g, '""')}"`);
+        const { importCSVFile } = await import('@/lib/duckdb');
         await importCSVFile(file, tableName, columns);
         await refreshTables();
         return;
       }
       
       const safeTable = String(tableName).replace(/"/g, '""');
-      const existsRes = await executeQuery(`SELECT name FROM sqlite_master WHERE type='table' AND name='${safeTable}'`);
-      if (existsRes && existsRes.length > 0) {
-        if (opts?.overwrite) await executeQuery(`DROP TABLE IF EXISTS "${safeTable}"`);
-        else throw new Error(`Table '${tableName}' already exists.`);
+      
+      if (opts?.overwrite) {
+        await executeQuery(`DROP TABLE IF EXISTS "${safeTable}"`);
+      } else {
+        try {
+          const existsRes = await executeQuery(
+            `SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_name='${safeTable}'`
+          );
+          if (existsRes && existsRes.length > 0) {
+            throw new Error(`Table '${tableName}' already exists.`);
+          }
+        } catch (e: any) {
+          if (e.message.includes('already exists')) throw e;
+        }
       }
       
       const sanitizedColumns = columns.map((col, idx) => {
@@ -333,13 +348,38 @@ const Index = () => {
 
   async function handleLoadSampleData() {
     try {
-      toast.loading('Loading NYC taxi sample data...', { id: 'sample' });
+      toast.loading('Loading sample data...', { id: 'sample' });
+      
+      // Load trains data
+      const trainData = generateTrainData(1000);
       await executeQuery(`
-        CREATE TABLE IF NOT EXISTS nyc_taxi_trips AS
-        SELECT * FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
+        CREATE TABLE IF NOT EXISTS trains (
+          service_id INTEGER, date DATE, type VARCHAR, train_number INTEGER,
+          station_code VARCHAR, station_name VARCHAR,
+          departure_time TIMESTAMP, arrival_time TIMESTAMP
+        )
       `);
+      const batchSize = 500;
+      for (let i = 0; i < trainData.length; i += batchSize) {
+        const batch = trainData.slice(i, i + batchSize);
+        const values = batch.map(row =>
+          `(${row.service_id}, '${row.date}', '${row.type}', ${row.train_number}, '${row.station_code}', '${row.station_name}', ${row.departure_time ? `'${row.departure_time}'` : 'NULL'}, ${row.arrival_time ? `'${row.arrival_time}'` : 'NULL'})`
+        ).join(',');
+        await executeQuery(`INSERT INTO trains VALUES ${values}`);
+      }
+
+      // Load NYC taxi data
+      try {
+        await executeQuery(`
+          CREATE TABLE IF NOT EXISTS nyc_taxi_trips AS
+          SELECT * FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
+        `);
+      } catch {
+        console.warn('Could not load NYC taxi data (may need network access)');
+      }
+      
       await refreshTables();
-      toast.success('NYC taxi sample data loaded!', { id: 'sample' });
+      toast.success('Sample data loaded! (trains + NYC taxi)', { id: 'sample' });
     } catch (error: any) {
       toast.error(`Failed to load sample data: ${error.message}`, { id: 'sample' });
     }
@@ -363,7 +403,7 @@ const Index = () => {
         <DatabaseSidebar 
           tables={tables} 
           onTableClick={(name) => {
-            const newCell: QueryCell = { id: Date.now().toString(), query: `SELECT * FROM ${name};`, results: [], isExecuting: false };
+            const newCell: QueryCell = { id: Date.now().toString(), query: `SELECT * FROM "${name}";`, results: [], isExecuting: false };
             setCells(prev => [...prev, newCell]);
           }}
           onImportCSV={handleImportCSV}
@@ -373,6 +413,9 @@ const Index = () => {
           onImportComplete={refreshTables}
           onTableDetails={(tableName) => setDetailsTable(tableName)}
           onNotebookSelect={handleNotebookSelect}
+          onOpenFileManager={() => setFileManagerOpen(true)}
+          onOpenConnectors={() => setConnectorsOpen(true)}
+          onOpenWorkflows={() => setWorkflowsOpen(true)}
         />
       )}
 
@@ -407,9 +450,33 @@ const Index = () => {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={handleLoadSampleData} className="h-7 px-2 gap-1.5">
-              <Download className="w-3.5 h-3.5" />
+              <Database className="w-3.5 h-3.5" />
               <span className="text-xs">Sample Data</span>
             </Button>
+
+            {currentMode === 'backend' && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5">
+                    <Server className="w-3.5 h-3.5" />
+                    <span className="text-xs">Tools</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setFileManagerOpen(true)}>
+                    <FolderOpen className="w-3.5 h-3.5 mr-2" /> File Manager
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setConnectorsOpen(true)}>
+                    <Plug className="w-3.5 h-3.5 mr-2" /> Connectors
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setWorkflowsOpen(true)}>
+                    <GitBranch className="w-3.5 h-3.5 mr-2" /> Workflows
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
             <Button variant="ghost" size="sm" onClick={handleAddCell} className="h-7 px-2 gap-1.5">
               <Plus className="w-3.5 h-3.5" />
               <span className="text-xs">New Cell</span>
@@ -601,6 +668,15 @@ const Index = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* File Manager Dialog */}
+      <FileManager open={fileManagerOpen} onOpenChange={setFileManagerOpen} onImportComplete={refreshTables} />
+
+      {/* Connectors Panel */}
+      <ConnectorsPanel open={connectorsOpen} onOpenChange={setConnectorsOpen} onImportComplete={refreshTables} />
+
+      {/* Workflow Builder */}
+      <WorkflowBuilder open={workflowsOpen} onOpenChange={setWorkflowsOpen} />
     </div>
   );
 };

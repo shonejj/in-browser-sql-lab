@@ -1,10 +1,8 @@
-import { useMemo, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Area, AreaChart } from 'recharts';
-import { Hash, Calendar, Type, Clock, ChevronDown, BarChart3, Table2 } from 'lucide-react';
+import { useMemo } from 'react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Hash, Calendar, Type, Clock, ChevronDown, Table2 } from 'lucide-react';
 import { Button } from './ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { PerformanceMonitor } from './PerformanceMonitor';
-import { AdvancedChartBuilder } from './AdvancedChartBuilder';
 import { ScrollArea } from './ui/scroll-area';
 import {
   DropdownMenu,
@@ -25,15 +23,12 @@ interface ColumnDiagnosticsProps {
 export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells = [], selectedCellId, onCellSelect }: ColumnDiagnosticsProps) {
   const columnStats = useMemo(() => {
     if (data.length === 0) return null;
-
     const columns = Object.keys(data[0]);
     const stats: any = {};
-
     columns.forEach((col) => {
       const values = data.map((row) => row[col]);
       const nonNullValues = values.filter((v) => v !== null && v !== undefined);
       const uniqueValues = new Set(nonNullValues);
-
       stats[col] = {
         type: inferType(nonNullValues[0]),
         uniqueCount: uniqueValues.size,
@@ -41,30 +36,19 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
         values: nonNullValues,
       };
     });
-
     return stats;
   }, [data]);
 
   const categoryDistribution = useMemo(() => {
     if (!selectedColumn || !columnStats || !columnStats[selectedColumn]) return null;
-
     const colData = columnStats[selectedColumn];
     if (!colData || colData.type !== 'text') return null;
-
     const counts: Record<string, number> = {};
-    colData.values.forEach((v: any) => {
-      const key = String(v);
-      counts[key] = (counts[key] || 0) + 1;
-    });
-
-    const sorted = Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10);
-
+    colData.values.forEach((v: any) => { const key = String(v); counts[key] = (counts[key] || 0) + 1; });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const total = colData.values.length;
     return sorted.map(([name, count], idx) => ({
-      name,
-      count,
+      name, count,
       percentage: ((count / total) * 100).toFixed(1),
       fill: `hsl(var(--chart-${(idx % 5) + 1}))`,
     }));
@@ -72,16 +56,13 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
 
   const timeSeriesData = useMemo(() => {
     if (!selectedColumn || !columnStats || !columnStats[selectedColumn]) return null;
-
     const colData = columnStats[selectedColumn];
     if (!colData || colData.type !== 'date') return null;
-
     const dateCounts: Record<string, number> = {};
     colData.values.forEach((v: any) => {
       const date = new Date(v).toISOString().split('T')[0];
       dateCounts[date] = (dateCounts[date] || 0) + 1;
     });
-
     return Object.entries(dateCounts)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, count]) => ({
@@ -117,73 +98,51 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Performance Monitor */}
       <PerformanceMonitor />
       
-      <Tabs defaultValue="columns" className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-2 border-b">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="columns" className="text-xs gap-1">
-              <Table2 className="w-3 h-3" />
-              Columns
-            </TabsTrigger>
-            <TabsTrigger value="charts" className="text-xs gap-1">
-              <BarChart3 className="w-3 h-3" />
-              Charts
-            </TabsTrigger>
-          </TabsList>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b border-border flex-shrink-0">
+          <div className="flex items-center gap-1.5 mb-3">
+            <Table2 className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium">Column Inspector</span>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal mb-3">
+                <span className="truncate">
+                  {selectedCellId && cells.find(c => c.id === selectedCellId)
+                    ? `Cell ${cells.findIndex(c => c.id === selectedCellId) + 1}`
+                    : 'Current Cell'}
+                </span>
+                <ChevronDown className="w-3 h-3 ml-2 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {cellsWithResults.map((cell, idx) => (
+                <DropdownMenuItem key={cell.id} onClick={() => onCellSelect?.(cell.id)} className="cursor-pointer">
+                  <div className="flex flex-col gap-1 flex-1 min-w-0">
+                    <span className="text-sm font-medium">Cell {idx + 1}</span>
+                    <span className="text-xs text-muted-foreground truncate">{cell.query.substring(0, 40)}...</span>
+                    <span className="text-xs text-muted-foreground">{cell.results.length} rows</span>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+              {cellsWithResults.length === 0 && (
+                <DropdownMenuItem disabled>No results to display</DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <div className="text-xs">
+            <div className="font-semibold text-foreground">{data.length.toLocaleString()} Rows</div>
+            <div className="text-muted-foreground mt-0.5">{Object.keys(columnStats).length} Columns</div>
+          </div>
         </div>
 
-        <TabsContent value="columns" className="flex-1 overflow-hidden m-0 flex flex-col">
-          {/* Header */}
-          <div className="p-4 border-b border-panel-border flex-shrink-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal mb-3">
-                  <span className="truncate">
-                    {selectedCellId && cells.find(c => c.id === selectedCellId)
-                      ? `Cell ${cells.findIndex(c => c.id === selectedCellId) + 1}`
-                      : 'Current Cell'}
-                  </span>
-                  <ChevronDown className="w-3 h-3 ml-2 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                {cellsWithResults.map((cell, idx) => (
-                  <DropdownMenuItem
-                    key={cell.id}
-                    onClick={() => onCellSelect?.(cell.id)}
-                    className="cursor-pointer"
-                  >
-                    <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <span className="text-sm font-medium">Cell {idx + 1}</span>
-                      <span className="text-xs text-muted-foreground truncate">
-                        {cell.query.substring(0, 40)}...
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {cell.results.length} rows
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-                {cellsWithResults.length === 0 && (
-                  <DropdownMenuItem disabled>
-                    No results to display
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
-            <div className="text-xs">
-              <div className="font-semibold text-foreground">{data.length.toLocaleString()} Rows</div>
-              <div className="text-muted-foreground mt-0.5">{Object.keys(columnStats).length} Columns</div>
-            </div>
-          </div>
-
-          {/* Scrollable Content */}
-          <ScrollArea className="flex-1">
-            {/* Column List */}
-            <div className="p-4 space-y-2">
+        {/* Scrollable Content */}
+        <ScrollArea className="flex-1">
+          <div className="p-4 space-y-2">
             {Object.entries(columnStats).map(([col, stats]: [string, any]) => (
               <div
                 key={col}
@@ -199,14 +158,12 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
                 )}
               </div>
             ))}
-            </div>
+          </div>
 
-            {/* Selected Column Details */}
-            {selectedColumn && columnStats[selectedColumn] && (
-              <div className="p-4 border-t border-border">
+          {selectedColumn && columnStats[selectedColumn] && (
+            <div className="p-4 border-t border-border">
               <div className="text-xs font-semibold mb-3">{selectedColumn}</div>
 
-              {/* Category Distribution */}
               {categoryDistribution && (
                 <div className="space-y-2">
                   {categoryDistribution.map((item) => (
@@ -217,13 +174,7 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${item.percentage}%`,
-                              backgroundColor: item.fill,
-                            }}
-                          />
+                          <div className="h-full rounded-full" style={{ width: `${item.percentage}%`, backgroundColor: item.fill }} />
                         </div>
                         <span className="text-[10px] text-muted-foreground w-12 text-right">
                           {(item.count / 1000).toFixed(1)}k
@@ -234,7 +185,6 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
                 </div>
               )}
 
-              {/* Time Series Chart */}
               {timeSeriesData && timeSeriesData.length > 0 && (
                 <div className="mt-4">
                   <div className="text-xs font-medium mb-2">Distribution over time</div>
@@ -249,21 +199,8 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                       <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '6px',
-                          fontSize: '11px',
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="count"
-                        stroke="hsl(var(--chart-1))"
-                        strokeWidth={2}
-                        fill="url(#colorCount)"
-                      />
+                      <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '6px', fontSize: '11px' }} />
+                      <Area type="monotone" dataKey="count" stroke="hsl(var(--chart-1))" strokeWidth={2} fill="url(#colorCount)" />
                     </AreaChart>
                   </ResponsiveContainer>
                   <div className="mt-2 text-[10px] text-muted-foreground">
@@ -272,7 +209,6 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
                 </div>
               )}
 
-              {/* Stats */}
               <div className="mt-4 space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Completeness</span>
@@ -283,17 +219,10 @@ export function ColumnDiagnostics({ data, selectedColumn, onColumnSelect, cells 
                   <span className="font-medium">{columnStats[selectedColumn].uniqueCount.toLocaleString()}</span>
                 </div>
               </div>
-              </div>
-            )}
-          </ScrollArea>
-        </TabsContent>
-
-        <TabsContent value="charts" className="flex-1 overflow-hidden m-0">
-          <ScrollArea className="h-full p-4">
-            <AdvancedChartBuilder data={data} />
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
+            </div>
+          )}
+        </ScrollArea>
+      </div>
     </div>
   );
 }
