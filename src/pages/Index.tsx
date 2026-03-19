@@ -350,7 +350,7 @@ const Index = () => {
     try {
       toast.loading('Loading sample data...', { id: 'sample' });
       
-      // Load trains data
+      // Load trains data (1000 rows - lightweight)
       const trainData = generateTrainData(1000);
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS trains (
@@ -367,19 +367,9 @@ const Index = () => {
         ).join(',');
         await executeQuery(`INSERT INTO trains VALUES ${values}`);
       }
-
-      // Load NYC taxi data
-      try {
-        await executeQuery(`
-          CREATE TABLE IF NOT EXISTS nyc_taxi_trips AS
-          SELECT * FROM read_csv_auto('https://raw.githubusercontent.com/mwaskom/seaborn-data/master/taxis.csv')
-        `);
-      } catch {
-        console.warn('Could not load NYC taxi data (may need network access)');
-      }
       
       await refreshTables();
-      toast.success('Sample data loaded! (trains + NYC taxi)', { id: 'sample' });
+      toast.success('Sample data loaded! (trains dataset - 1000 rows)', { id: 'sample' });
     } catch (error: any) {
       toast.error(`Failed to load sample data: ${error.message}`, { id: 'sample' });
     }
