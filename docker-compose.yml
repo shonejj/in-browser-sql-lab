@@ -27,9 +27,35 @@ services:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin123
       - MINIO_DEFAULT_BUCKET=duckdb-data
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - PRIVACY_MODE=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      - minio
+    networks:
+      - duckdb-net
+
+  # ─── Temporal Worker ──────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python worker.py
+    volumes:
+      - duckdb-data:/app/data
+    environment:
+      - DUCKDB_PATH=/app/data/main.duckdb
+      - DATA_DIR=/app/data
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_DEFAULT_BUCKET=duckdb-data
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+    depends_on:
+      - temporal
       - minio
     networks:
       - duckdb-net

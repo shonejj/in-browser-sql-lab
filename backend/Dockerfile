@@ -3,12 +3,13 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Copy and install requirements
-# Note: DuckDB 1.x ships with pre-compiled wheels, no build tools needed
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy all application code
 COPY main.py .
+COPY workflows.py .
+COPY worker.py .
 
 EXPOSE 9876
 

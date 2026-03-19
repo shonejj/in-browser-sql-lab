@@ -9,7 +9,19 @@ let backendUrl: string | null = null;
 let _isBackendMode = false;
 let _forceMode: 'wasm' | 'backend' | null = null;
 
-const DEFAULT_BACKEND_URL = 'http://localhost:9876';
+// Smart default: use relative paths when not on localhost (docker/prod), absolute for local dev
+function getDefaultBackendUrl(): string {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    // In Docker/prod, nginx proxies /api → backend, so use relative paths
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      return '';  // empty = relative URLs like /api/health
+    }
+  }
+  return 'http://localhost:9876';
+}
+
+const DEFAULT_BACKEND_URL = getDefaultBackendUrl();
 
 // Check if forced to WASM (for GitHub Pages builds)
 const FORCE_WASM = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_FORCE_WASM === 'true';
@@ -35,7 +47,6 @@ export async function forceWasmMode() {
   _forceMode = 'wasm';
   _isBackendMode = false;
   localStorage.setItem('duckdb_force_mode', 'wasm');
-  // Initialize WASM if not already done
   if (!db) {
     await initWasmEngine();
   }
@@ -47,7 +58,7 @@ export async function forceBackendMode(url?: string) {
   localStorage.setItem('duckdb_force_mode', 'backend');
   const ok = await checkBackendHealth();
   if (!ok) {
-    throw new Error(`Cannot connect to backend at ${getBackendUrl()}`);
+    throw new Error(`Cannot connect to backend at ${getBackendUrl() || window.location.origin}. Check if docker-compose is running.`);
   }
 }
 
@@ -61,13 +72,14 @@ export async function checkBackendHealth(): Promise<boolean> {
     _isBackendMode = false;
     return false;
   }
-  const url = getBackendUrl();
+  const base = getBackendUrl();
+  const url = `${base}/api/health`;
   try {
-    const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
       const data = await res.json();
       if (data.status === 'ok') {
-        backendUrl = url;
+        backendUrl = base;
         _isBackendMode = true;
         return true;
       }
@@ -155,8 +167,8 @@ export async function executeQuery(query: string) {
 }
 
 async function executeBackendQuery(query: string): Promise<any[]> {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/query`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),
@@ -192,19 +204,19 @@ export async function getDatabase() {
 // ─── Backend-specific helpers ───────────────────────────────────────────────
 
 export async function backendListTables() {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/tables`);
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/tables`);
   if (!res.ok) throw new Error('Failed to list tables');
   return (await res.json()).tables;
 }
 
 export async function backendImportFile(file: File, tableName: string, overwrite = false) {
-  const url = getBackendUrl();
+  const base = getBackendUrl();
   const formData = new FormData();
   formData.append('file', file);
   formData.append('table_name', tableName);
   formData.append('overwrite', String(overwrite));
-  const res = await fetch(`${url}/api/import`, { method: 'POST', body: formData });
+  const res = await fetch(`${base}/api/import`, { method: 'POST', body: formData });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Import failed' }));
     throw new Error(err.detail || 'Import failed');
@@ -216,8 +228,8 @@ export async function backendAttachDatabase(config: {
   type: string; host?: string; port?: number; database?: string;
   username?: string; password?: string; path?: string;
 }) {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/attach`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/attach`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -230,8 +242,8 @@ export async function backendAttachDatabase(config: {
 }
 
 export async function backendManageExtension(name: string, action = 'install_and_load') {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/extensions`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/extensions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, action }),
@@ -244,8 +256,8 @@ export async function backendManageExtension(name: string, action = 'install_and
 }
 
 export async function backendListExtensions() {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/extensions/list`);
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/extensions/list`);
   if (!res.ok) throw new Error('Failed to list extensions');
   return (await res.json()).extensions;
 }
@@ -256,8 +268,8 @@ export async function backendConfigureS3(config: {
   endpoint: string; access_key: string; secret_key: string;
   region?: string; use_ssl?: boolean; url_style?: string;
 }) {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/s3/configure`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/s3/configure`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -270,8 +282,8 @@ export async function backendConfigureS3(config: {
 }
 
 export async function backendListS3(bucket: string, prefix = '') {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/s3/list`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/s3/list`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bucket, prefix }),
@@ -284,8 +296,8 @@ export async function backendListS3(bucket: string, prefix = '') {
 }
 
 export async function backendImportFromS3(bucket: string, key: string, tableName: string, overwrite = false) {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/s3/import`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/s3/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bucket, key, table_name: tableName, overwrite }),
@@ -298,8 +310,8 @@ export async function backendImportFromS3(bucket: string, key: string, tableName
 }
 
 export async function backendExportToS3(bucket: string, key: string, query?: string) {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/s3/export`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/s3/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bucket, key, query }),
@@ -314,15 +326,15 @@ export async function backendExportToS3(bucket: string, key: string, query?: str
 // ─── Saved Connections ──────────────────────────────────────────────────────
 
 export async function backendListConnections() {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/connections`);
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/connections`);
   if (!res.ok) throw new Error('Failed to list connections');
   return (await res.json()).connections;
 }
 
 export async function backendSaveConnection(config: any) {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/connections`, {
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/connections`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -335,8 +347,8 @@ export async function backendSaveConnection(config: any) {
 }
 
 export async function backendDeleteConnection(id: string) {
-  const url = getBackendUrl();
-  const res = await fetch(`${url}/api/connections/${id}`, { method: 'DELETE' });
+  const base = getBackendUrl();
+  const res = await fetch(`${base}/api/connections/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete connection');
   return res.json();
 }
@@ -345,8 +357,8 @@ export async function backendDeleteConnection(id: string) {
 
 export async function exportDuckDB(): Promise<Blob> {
   if (_isBackendMode) {
-    const url = getBackendUrl();
-    const res = await fetch(`${url}/api/export/duckdb`, { method: 'POST' });
+    const base = getBackendUrl();
+    const res = await fetch(`${base}/api/export/duckdb`, { method: 'POST' });
     if (!res.ok) throw new Error('Export failed');
     return res.blob();
   }
@@ -355,9 +367,7 @@ export async function exportDuckDB(): Promise<Blob> {
   if (!db) throw new Error('No database initialized');
   
   try {
-    // Try to export database to a temporary path
     await conn!.query("EXPORT DATABASE '/tmp/export' (FORMAT PARQUET)");
-    // For WASM, we'll just create a CSV dump of all tables
     const tables = await conn!.query("SELECT name FROM sqlite_master WHERE type='table'");
     const tableNames = tables.toArray().map((r: any) => r.name || r[0]);
     

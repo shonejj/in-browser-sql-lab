@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download, FolderOpen, Plug, GitBranch } from 'lucide-react';
 import { Button } from './ui/button';
 import { CSVImporter } from './CSVImporter';
@@ -31,9 +31,10 @@ interface DatabaseSidebarProps {
   onOpenFileManager?: () => void;
   onOpenConnectors?: () => void;
   onOpenWorkflows?: () => void;
+  onAttachDatabase?: () => void;
 }
 
-export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete, onTableDetails, onNotebookSelect, onOpenFileManager, onOpenConnectors, onOpenWorkflows }: DatabaseSidebarProps) {
+export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, onDeleteTable, onOpenInEditor, onImportComplete, onTableDetails, onNotebookSelect, onOpenFileManager, onOpenConnectors, onOpenWorkflows, onAttachDatabase }: DatabaseSidebarProps) {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set(['memory']));
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 
@@ -106,7 +107,13 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
         <div className="p-2">
           <div className="flex items-center justify-between px-2 py-1.5 text-xs font-medium text-sidebar-foreground/60">
             <span>Attached databases</span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" disabled title="Attach database feature coming soon">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={onAttachDatabase}
+              title={backend ? "Attach external database" : "Attach DuckDB file"}
+            >
               <Plus className="w-3 h-3" />
             </Button>
           </div>
@@ -118,7 +125,7 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
             >
               {expandedDatabases.has('memory') ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               <Database className="w-3 h-3 text-sidebar-primary" />
-              <span>memory</span>
+              <span>{backend ? 'server' : 'memory'}</span>
             </button>
 
             {expandedDatabases.has('memory') && (

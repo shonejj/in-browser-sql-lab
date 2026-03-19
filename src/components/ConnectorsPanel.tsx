@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -8,7 +8,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
 import { getBackendUrl, backendListConnections, backendSaveConnection, backendDeleteConnection } from '@/lib/duckdb';
-import { Database, Cloud, Server, Globe, Trash2, Plus, TestTube, Webhook } from 'lucide-react';
+import { Database, Cloud, Server, Globe, Trash2, Plus, TestTube, Webhook, HardDrive, Clock } from 'lucide-react';
 
 interface ConnectorsPanelProps {
   open: boolean;
@@ -45,12 +45,23 @@ export function ConnectorsPanel({ open, onOpenChange, onImportComplete }: Connec
   const [form, setForm] = useState<ConnectorForm>({ ...emptyForm });
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [platformInfo, setPlatformInfo] = useState<any>(null);
 
   const backendUrl = getBackendUrl();
 
   useEffect(() => {
-    if (open) loadConnections();
+    if (open) {
+      loadConnections();
+      loadPlatformInfo();
+    }
   }, [open]);
+
+  async function loadPlatformInfo() {
+    try {
+      const res = await fetch(`${backendUrl}/api/health`);
+      if (res.ok) setPlatformInfo(await res.json());
+    } catch { /* ignore */ }
+  }
 
   async function loadConnections() {
     try {
@@ -137,12 +148,16 @@ export function ConnectorsPanel({ open, onOpenChange, onImportComplete }: Connec
             <Server className="w-5 h-5" />
             Connectors
           </DialogTitle>
+          <DialogDescription>
+            Manage external data sources, storage, and orchestration connections.
+          </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="manage" className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="manage" className="text-xs">Saved Connectors</TabsTrigger>
             <TabsTrigger value="new" className="text-xs">New Connector</TabsTrigger>
+            <TabsTrigger value="platform" className="text-xs">Platform</TabsTrigger>
           </TabsList>
 
           <TabsContent value="manage" className="flex-1 overflow-hidden m-0 mt-2">
@@ -303,6 +318,74 @@ export function ConnectorsPanel({ open, onOpenChange, onImportComplete }: Connec
                     <Plus className="w-3 h-3 mr-1" /> {saving ? 'Saving...' : 'Save Connector'}
                   </Button>
                 </div>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="platform" className="flex-1 overflow-hidden m-0 mt-2">
+            <ScrollArea className="h-[400px]">
+              <div className="space-y-4 p-1">
+                {/* Storage Configuration */}
+                <div className="border rounded-lg p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="w-4 h-4" />
+                    <span className="text-sm font-medium">Storage (S3/MinIO)</span>
+                    <Badge variant={platformInfo?.minio_configured ? 'default' : 'secondary'} className="text-[10px]">
+                      {platformInfo?.minio_configured ? 'Connected' : 'Not configured'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Configure via <code className="bg-muted px-1 rounded">MINIO_ENDPOINT</code> env var in docker-compose.
+                    Users can bring their own S3-compatible storage — no data stays on the platform.
+                  </p>
+                </div>
+
+                {/* Temporal Configuration */}
+                <div className="border rounded-lg p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Workflow Engine (Temporal)</span>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {platformInfo?.temporal_host || 'temporal:7233'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Configure via <code className="bg-muted px-1 rounded">TEMPORAL_HOST</code> and <code className="bg-muted px-1 rounded">TEMPORAL_NAMESPACE</code> env vars.
+                    Connect your own Temporal cluster for workflow orchestration.
+                  </p>
+                </div>
+
+                {/* Privacy Mode */}
+                <div className="border rounded-lg p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4" />
+                    <span className="text-sm font-medium">Privacy Mode</span>
+                    <Badge variant={platformInfo?.privacy_mode ? 'destructive' : 'secondary'} className="text-[10px]">
+                      {platformInfo?.privacy_mode ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled via <code className="bg-muted px-1 rounded">PRIVACY_MODE=true</code>, DuckDB runs in-memory only.
+                    No data is persisted — all operations pass through without storage.
+                  </p>
+                </div>
+
+                {/* Platform Info */}
+                {platformInfo && (
+                  <div className="border rounded-lg p-4 space-y-2">
+                    <span className="text-sm font-medium">Backend Info</span>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div className="flex justify-between">
+                        <span>DuckDB Version</span>
+                        <span className="font-mono">{platformInfo.version}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Engine</span>
+                        <span className="font-mono">{platformInfo.engine}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>
