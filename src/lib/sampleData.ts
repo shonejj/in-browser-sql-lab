@@ -77,14 +77,12 @@ export function generateTrainData(count: number = 10000) {
   return data;
 }
 
-export const initialQuery = `/**
- * Exploring Column Diagnostics
- * 
- * When running a query, your results will appear below the editor
- * and column diagnostics will appear on the right panel, providing an
- * overview of your data without requiring additional queries.
- * 
- * Run this query, then click on column names in the right panel to view detailed statistics.
- */
-
-FROM trains;`;
+export const initialQuery = `-- Welcome to DuckDB Lab!
+-- 
+-- Get started:
+--   1. Click "Sample Data" in the toolbar to load example datasets
+--   2. Import your own CSV, Parquet, or JSON files
+--   3. Connect to MySQL, PostgreSQL, or S3/MinIO in Server mode
+--
+-- Then write SQL queries here and press Ctrl+Enter (or click Run) to execute.
+`;

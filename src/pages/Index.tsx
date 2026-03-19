@@ -13,6 +13,8 @@ import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
 import { FileManager } from '@/components/FileManager';
 import { ConnectorsPanel } from '@/components/ConnectorsPanel';
 import { WorkflowBuilder } from '@/components/WorkflowBuilder';
+import { DatabaseConnector } from '@/components/DatabaseConnector';
+import { DuckDBFileAttacher } from '@/components/DuckDBFileAttacher';
 import { 
   initDuckDB, executeQuery, isBackendMode, 
   getBackendUrl, setBackendUrl, forceWasmMode, forceBackendMode, setAutoMode,
@@ -21,11 +23,11 @@ import {
 import { generateTrainData, initialQuery } from '@/lib/sampleData';
 import { getNotebook, saveNotebook, type NotebookDoc } from '@/lib/notebooks';
 import { toast } from 'sonner';
-import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download, Server, Monitor, Settings2, FolderOpen, Plug, GitBranch, Database } from 'lucide-react';
+import { History, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Sparkles, Download, Server, Monitor, Settings2, FolderOpen, Plug, GitBranch, Database, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -69,6 +71,11 @@ const Index = () => {
   const [fileManagerOpen, setFileManagerOpen] = useState(false);
   const [connectorsOpen, setConnectorsOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  const [attachDialogOpen, setAttachDialogOpen] = useState(false);
+  const [attachFileDialogOpen, setAttachFileDialogOpen] = useState(false);
+
+  // Platform info
+  const [privacyMode, setPrivacyMode] = useState(false);
 
   useEffect(() => {
     if (!isInitializingRef.current && !isInitialized) {
@@ -86,10 +93,31 @@ const Index = () => {
       await initDuckDB();
       setCurrentMode(isBackendMode() ? 'backend' : 'wasm');
 
+      // Check platform info in backend mode
+      if (isBackendMode()) {
+        try {
+          const base = getBackendUrl();
+          const res = await fetch(`${base}/api/health`);
+          if (res.ok) {
+            const info = await res.json();
+            setPrivacyMode(info.privacy_mode || false);
+          }
+        } catch { /* ignore */ }
+      }
+
       setIsInitialized(true);
       toast.success(`Database initialized (${isBackendMode() ? 'Server' : 'WASM'} mode)`, { id: 'init' });
       
-      await refreshTables();
+      // Retry table refresh with delay for server mode (backend may still be restoring from MinIO)
+      if (isBackendMode()) {
+        await refreshTables();
+        // Retry once after a short delay in case tables are still loading
+        setTimeout(async () => {
+          await refreshTables();
+        }, 2000);
+      } else {
+        await refreshTables();
+      }
     } catch (error) {
       console.error('Failed to initialize database:', error);
       toast.error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: 'init' });
@@ -235,12 +263,10 @@ const Index = () => {
   async function refreshTables() {
     try {
       if (isBackendMode()) {
-        // Use dedicated backend endpoint
         const backendTables = await backendListTables();
         setTables(backendTables || []);
         (window as any).__duckdb_tables__ = (backendTables || []).map((t: any) => t.name);
       } else {
-        // WASM mode: use information_schema
         const tablesResult = await executeQuery(
           "SELECT table_name as name FROM information_schema.tables WHERE table_schema = 'main'"
         );
@@ -350,7 +376,6 @@ const Index = () => {
     try {
       toast.loading('Loading sample data...', { id: 'sample' });
       
-      // Load trains data (1000 rows - lightweight)
       const trainData = generateTrainData(1000);
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS trains (
@@ -369,7 +394,26 @@ const Index = () => {
       }
       
       await refreshTables();
+      
+      // Auto-populate the first cell with a trains query and execute it
+      const trainQuery = 'FROM trains;';
+      setCells(prev => {
+        const first = prev[0];
+        // Only replace if the first cell is empty or has the welcome comment
+        if (first && (!first.query.trim() || first.query.startsWith('--'))) {
+          return [{ ...first, query: trainQuery }, ...prev.slice(1)];
+        }
+        // Otherwise add a new cell
+        return [...prev, { id: Date.now().toString(), query: trainQuery, results: [], isExecuting: false }];
+      });
+      
       toast.success('Sample data loaded! (trains dataset - 1000 rows)', { id: 'sample' });
+      
+      // Auto-execute after a brief delay
+      setTimeout(() => {
+        const firstCell = cells[0];
+        if (firstCell) handleExecuteQuery(firstCell.id);
+      }, 300);
     } catch (error: any) {
       toast.error(`Failed to load sample data: ${error.message}`, { id: 'sample' });
     }
@@ -379,6 +423,14 @@ const Index = () => {
     const newCell: QueryCell = { id: Date.now().toString(), query, results: [], isExecuting: false };
     setCells(prev => [...prev, newCell]);
     setTimeout(() => handleExecuteQuery(newCell.id), 200);
+  }
+
+  function handleAttachDatabase() {
+    if (isBackendMode()) {
+      setAttachDialogOpen(true);
+    } else {
+      setAttachFileDialogOpen(true);
+    }
   }
 
   const currentColumns = useMemo(() => {
@@ -406,6 +458,7 @@ const Index = () => {
           onOpenFileManager={() => setFileManagerOpen(true)}
           onOpenConnectors={() => setConnectorsOpen(true)}
           onOpenWorkflows={() => setWorkflowsOpen(true)}
+          onAttachDatabase={handleAttachDatabase}
         />
       )}
 
@@ -434,6 +487,11 @@ const Index = () => {
                   )}
                 </Badge>
               </button>
+              {privacyMode && (
+                <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-destructive text-destructive">
+                  <Shield className="w-2.5 h-2.5 mr-0.5" /> Privacy
+                </Badge>
+              )}
             </div>
           </div>
           
@@ -606,12 +664,11 @@ const Index = () => {
               <Settings2 className="w-5 h-5" />
               DuckDB Engine Mode
             </DialogTitle>
+            <DialogDescription>
+              Choose between local WASM engine or a remote Server engine.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Choose between local WASM engine (browser-only) or a remote Server engine with full extension support.
-            </p>
-
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => handleSwitchMode('wasm')}
@@ -649,7 +706,7 @@ const Index = () => {
                 className="mt-1"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Used when Server mode is selected. Default: http://localhost:9876
+                Used when Server mode is selected. Leave empty for Docker (uses nginx proxy).
               </p>
             </div>
           </div>
@@ -667,6 +724,16 @@ const Index = () => {
 
       {/* Workflow Builder */}
       <WorkflowBuilder open={workflowsOpen} onOpenChange={setWorkflowsOpen} />
+
+      {/* Attach Database Dialog (Server mode) */}
+      {attachDialogOpen && (
+        <DatabaseConnector onImportComplete={() => { refreshTables(); setAttachDialogOpen(false); }} />
+      )}
+
+      {/* Attach File Dialog (WASM mode) */}
+      {attachFileDialogOpen && (
+        <DuckDBFileAttacher onAttach={() => { refreshTables(); setAttachFileDialogOpen(false); }} />
+      )}
     </div>
   );
 };

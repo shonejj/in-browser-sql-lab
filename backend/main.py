@@ -18,21 +18,30 @@ import traceback
 import uuid
 import shutil
 import io
+import asyncio
 
 # ─── MinIO / boto3 ──────────────────────────────────────────────────────────
 import boto3
 from botocore.exceptions import ClientError
 
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "minio:9000")
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "")
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_USE_SSL = os.environ.get("MINIO_USE_SSL", "false").lower() == "true"
 MINIO_DEFAULT_BUCKET = os.environ.get("MINIO_DEFAULT_BUCKET", "duckdb-data")
 
+# Platform configuration
+PRIVACY_MODE = os.environ.get("PRIVACY_MODE", "false").lower() == "true"
+TEMPORAL_HOST = os.environ.get("TEMPORAL_HOST", "temporal:7233")
+TEMPORAL_NAMESPACE = os.environ.get("TEMPORAL_NAMESPACE", "default")
+
 s3_client = None
+
 
 def get_s3_client():
     global s3_client
+    if not MINIO_ENDPOINT:
+        return None
     if s3_client is None:
         proto = "https" if MINIO_USE_SSL else "http"
         s3_client = boto3.client(
@@ -47,15 +56,23 @@ def get_s3_client():
 
 def init_minio():
     """Create default bucket and optionally restore DuckDB from MinIO."""
+    if not MINIO_ENDPOINT:
+        print("No MINIO_ENDPOINT set, skipping MinIO init (BYO storage mode)")
+        return
+    if PRIVACY_MODE:
+        print("Privacy mode enabled, skipping MinIO persistence")
+        return
     try:
         client = get_s3_client()
+        if client is None:
+            return
         # Create default bucket
         try:
             client.head_bucket(Bucket=MINIO_DEFAULT_BUCKET)
         except ClientError:
             client.create_bucket(Bucket=MINIO_DEFAULT_BUCKET)
             print(f"Created MinIO bucket: {MINIO_DEFAULT_BUCKET}")
-        
+
         # Try to restore DuckDB file from MinIO
         try:
             client.head_object(Bucket=MINIO_DEFAULT_BUCKET, Key="main.duckdb")
@@ -69,13 +86,38 @@ def init_minio():
 
 def persist_to_minio():
     """Upload current DuckDB file to MinIO."""
+    if not MINIO_ENDPOINT or PRIVACY_MODE:
+        return
     try:
         con.execute("CHECKPOINT")
         client = get_s3_client()
+        if client is None:
+            return
         client.upload_file(db_path, MINIO_DEFAULT_BUCKET, "main.duckdb")
         print("Persisted DuckDB to MinIO")
     except Exception as e:
         print(f"MinIO persist warning: {e}")
+
+
+# ─── Temporal (optional) ────────────────────────────────────────────────────
+
+temporal_client = None
+
+
+async def init_temporal():
+    """Try to connect to Temporal. Non-fatal if unavailable."""
+    global temporal_client
+    try:
+        from workflows import get_temporal_client
+        temporal_client = await get_temporal_client()
+        if temporal_client:
+            print(f"Connected to Temporal at {TEMPORAL_HOST}")
+        else:
+            print("Temporal not available, workflows will run synchronously")
+    except ImportError:
+        print("temporalio not installed, workflows will run synchronously")
+    except Exception as e:
+        print(f"Temporal init warning (non-fatal): {e}")
 
 
 # ─── Lifespan ────────────────────────────────────────────────────────────────
@@ -84,6 +126,7 @@ def persist_to_minio():
 async def lifespan(app: FastAPI):
     # Startup
     init_minio()
+    await init_temporal()
     yield
     # Shutdown
     persist_to_minio()
@@ -104,8 +147,13 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Global DuckDB connection
-db_path = os.environ.get("DUCKDB_PATH", os.path.join(DATA_DIR, "main.duckdb"))
-con = duckdb.connect(db_path)
+if PRIVACY_MODE:
+    db_path = ":memory:"
+    con = duckdb.connect()
+    print("Privacy mode: DuckDB running in-memory only")
+else:
+    db_path = os.environ.get("DUCKDB_PATH", os.path.join(DATA_DIR, "main.duckdb"))
+    con = duckdb.connect(db_path)
 
 # Pre-install common extensions
 for ext in ["httpfs", "json", "parquet", "excel", "fts", "mysql", "postgres"]:
@@ -114,7 +162,7 @@ for ext in ["httpfs", "json", "parquet", "excel", "fts", "mysql", "postgres"]:
     except Exception:
         pass
 
-# Initialize meta schema
+# Initialize meta schema (skip in privacy mode for session-only storage)
 try:
     con.execute("CREATE SCHEMA IF NOT EXISTS _meta")
     con.execute("""
@@ -263,7 +311,14 @@ def serialize_row(row, columns):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "engine": "duckdb-native", "version": duckdb.__version__}
+    return {
+        "status": "ok",
+        "engine": "duckdb-native",
+        "version": duckdb.__version__,
+        "privacy_mode": PRIVACY_MODE,
+        "minio_configured": bool(MINIO_ENDPOINT),
+        "temporal_host": TEMPORAL_HOST,
+    }
 
 
 @app.post("/api/query")
@@ -282,27 +337,38 @@ def run_query(req: QueryRequest):
 
 @app.get("/api/tables")
 def list_tables():
+    """List all user tables. Removes table_catalog filter to support attached DBs."""
     try:
         result = con.execute("""
-            SELECT table_name 
+            SELECT table_name, table_schema
             FROM information_schema.tables 
-            WHERE table_schema = 'main' AND table_catalog = 'main'
+            WHERE table_schema NOT IN ('_meta', 'information_schema', 'pg_catalog')
+              AND table_type = 'BASE TABLE'
         """)
         tables = []
         for row in result.fetchall():
             name = row[0]
-            if name.startswith('_meta'): continue
+            schema = row[1]
+            # Skip internal tables
+            if name.startswith('_meta') or name.startswith('sqlite_'):
+                continue
             try:
-                count_res = con.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()
+                qualified = f'"{schema}"."{name}"' if schema != 'main' else f'"{name}"'
+                count_res = con.execute(f'SELECT COUNT(*) FROM {qualified}').fetchone()
                 count = count_res[0] if count_res else 0
-            except:
+            except Exception:
                 count = 0
             try:
                 cols_res = con.execute(f"PRAGMA table_info('{name}')").fetchall()
                 columns = [{"name": c[1], "type": c[2]} for c in cols_res]
-            except:
+            except Exception:
                 columns = []
-            tables.append({"name": name, "rowCount": count, "columns": columns})
+            tables.append({
+                "name": name,
+                "schema": schema,
+                "rowCount": count,
+                "columns": columns,
+            })
         return {"tables": tables}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -372,7 +438,7 @@ def attach_database(req: AttachRequest):
             alias = f"mysql_{req.database or 'db'}"
             try:
                 con.execute(f"DETACH IF EXISTS {alias}")
-            except:
+            except Exception:
                 pass
             con.execute(f"ATTACH '{dsn}' AS {alias} (TYPE MYSQL)")
             return {"message": f"Attached MySQL database: {req.database}", "alias": alias}
@@ -382,7 +448,7 @@ def attach_database(req: AttachRequest):
             alias = f"pg_{req.database or 'db'}"
             try:
                 con.execute(f"DETACH IF EXISTS {alias}")
-            except:
+            except Exception:
                 pass
             con.execute(f"ATTACH '{dsn}' AS {alias} (TYPE POSTGRES)")
             return {"message": f"Attached PostgreSQL database: {req.database}", "alias": alias}
@@ -494,6 +560,8 @@ def export_to_s3(req: S3ExportRequest):
 
 @app.post("/api/export/duckdb")
 def export_duckdb():
+    if PRIVACY_MODE:
+        raise HTTPException(status_code=400, detail="Export not available in privacy mode (in-memory only)")
     try:
         export_path = os.path.join(DATA_DIR, f"export_{uuid.uuid4().hex[:8]}.duckdb")
         con.execute("CHECKPOINT")
@@ -527,6 +595,8 @@ def list_connections():
 
 @app.post("/api/connections")
 def save_connection(req: ConnectionSaveRequest):
+    if PRIVACY_MODE:
+        raise HTTPException(status_code=400, detail="Connections are session-only in privacy mode and cannot be persisted")
     try:
         conn_id = str(uuid.uuid4())
         con.execute("""
@@ -559,7 +629,6 @@ def delete_connection(conn_id: str):
 def test_connector(req: ConnectorTestRequest):
     try:
         if req.type in ("mysql", "postgresql"):
-            # Try to attach and immediately detach
             if req.type == "mysql":
                 con.execute("INSTALL mysql; LOAD mysql;")
                 dsn = f"host={req.host} port={req.port or 3306} user={req.username} password={req.password} database={req.database_name}"
@@ -603,17 +672,17 @@ def test_connector(req: ConnectorTestRequest):
 def files_list(req: FileListRequest):
     try:
         client = get_s3_client()
+        if client is None:
+            raise HTTPException(status_code=400, detail="No storage configured. Set MINIO_ENDPOINT or configure S3 in Connectors.")
         prefix = req.prefix or ""
         response = client.list_objects_v2(
             Bucket=req.bucket, Prefix=prefix, Delimiter="/"
         )
         files = []
-        # Folders (common prefixes)
         for cp in response.get("CommonPrefixes", []):
             folder_key = cp["Prefix"]
             name = folder_key[len(prefix):].rstrip("/")
             files.append({"name": name, "key": folder_key, "size": 0, "is_folder": True})
-        # Files
         for obj in response.get("Contents", []):
             key = obj["Key"]
             if key == prefix:
@@ -629,6 +698,8 @@ def files_list(req: FileListRequest):
                 "last_modified": obj["LastModified"].isoformat() if obj.get("LastModified") else None,
             })
         return {"files": files}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -641,9 +712,13 @@ async def files_upload(
 ):
     try:
         client = get_s3_client()
+        if client is None:
+            raise HTTPException(status_code=400, detail="No storage configured")
         content = await file.read()
         client.put_object(Bucket=bucket, Key=key, Body=content)
         return {"message": f"Uploaded {key}"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -652,7 +727,8 @@ async def files_upload(
 def files_delete(req: FileDeleteRequest):
     try:
         client = get_s3_client()
-        # If folder, delete all objects with prefix
+        if client is None:
+            raise HTTPException(status_code=400, detail="No storage configured")
         if req.key.endswith("/"):
             response = client.list_objects_v2(Bucket=req.bucket, Prefix=req.key)
             for obj in response.get("Contents", []):
@@ -660,6 +736,8 @@ def files_delete(req: FileDeleteRequest):
         else:
             client.delete_object(Bucket=req.bucket, Key=req.key)
         return {"message": "Deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -668,9 +746,13 @@ def files_delete(req: FileDeleteRequest):
 def files_mkdir(req: FileMkdirRequest):
     try:
         client = get_s3_client()
+        if client is None:
+            raise HTTPException(status_code=400, detail="No storage configured")
         key = req.key if req.key.endswith("/") else req.key + "/"
         client.put_object(Bucket=req.bucket, Key=key, Body=b"")
         return {"message": f"Created folder {key}"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -679,12 +761,16 @@ def files_mkdir(req: FileMkdirRequest):
 def files_copy_link(req: FileCopyLinkRequest):
     try:
         client = get_s3_client()
+        if client is None:
+            raise HTTPException(status_code=400, detail="No storage configured")
         url = client.generate_presigned_url(
             "get_object",
             Params={"Bucket": req.bucket, "Key": req.key},
             ExpiresIn=3600,
         )
         return {"url": url}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -693,6 +779,8 @@ def files_copy_link(req: FileCopyLinkRequest):
 def files_download(bucket: str = Query(...), key: str = Query(...)):
     try:
         client = get_s3_client()
+        if client is None:
+            raise HTTPException(status_code=400, detail="No storage configured")
         response = client.get_object(Bucket=bucket, Key=key)
         filename = key.split("/")[-1]
         return StreamingResponse(
@@ -700,6 +788,8 @@ def files_download(bucket: str = Query(...), key: str = Query(...)):
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -726,15 +816,14 @@ def save_workflow(req: WorkflowSaveRequest):
     try:
         wf_id = req.id or str(uuid.uuid4())
         steps_json = json.dumps(req.steps or [])
-        
-        # Upsert
+
         try:
             existing = con.execute(
                 "SELECT id FROM _meta.workflows WHERE id = ?", [wf_id]
             ).fetchone()
-        except:
+        except Exception:
             existing = None
-        
+
         if existing:
             con.execute("""
                 UPDATE _meta.workflows SET name=?, schedule=?, steps=?
@@ -745,47 +834,82 @@ def save_workflow(req: WorkflowSaveRequest):
                 INSERT INTO _meta.workflows (id, name, schedule, steps)
                 VALUES (?, ?, ?, ?)
             """, [wf_id, req.name, req.schedule, steps_json])
-        
+
         return {"id": wf_id, "message": f"Workflow '{req.name}' saved"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/workflows/{wf_id}/run")
-def run_workflow(wf_id: str):
+async def run_workflow(wf_id: str):
+    """Run workflow via Temporal if available, otherwise synchronously."""
     try:
         result = con.execute(
-            "SELECT steps FROM _meta.workflows WHERE id = ?", [wf_id]
+            "SELECT name, steps FROM _meta.workflows WHERE id = ?", [wf_id]
         ).fetchone()
         if not result:
             raise HTTPException(status_code=404, detail="Workflow not found")
-        
-        steps = json.loads(result[0]) if result[0] else []
-        
-        # Simple sequential execution
-        for step in steps:
-            step_type = step.get("type")
-            config = step.get("config", {})
-            
-            if step_type == "source" and config.get("query"):
-                con.execute(config["query"])
-            elif step_type == "transform" and config.get("query"):
-                con.execute(config["query"])
-            elif step_type == "destination":
-                if config.get("query"):
-                    con.execute(config["query"])
-        
+
+        name = result[0]
+        steps = json.loads(result[1]) if result[1] else []
+
+        # Update status to running
+        con.execute(
+            "UPDATE _meta.workflows SET status='running' WHERE id=?", [wf_id]
+        )
+
+        try:
+            from workflows import start_workflow
+            run_result = await start_workflow(wf_id, name, steps)
+        except ImportError:
+            # No Temporal module, run synchronously inline
+            for step in steps:
+                query = step.get("config", {}).get("query", "")
+                if query:
+                    con.execute(query)
+            run_result = {"message": f"Workflow '{name}' completed (sync)", "async": False}
+
         con.execute(
             "UPDATE _meta.workflows SET status='completed', last_run=current_timestamp WHERE id=?",
             [wf_id],
         )
-        return {"message": "Workflow executed successfully"}
+        return run_result
     except HTTPException:
         raise
     except Exception as e:
-        con.execute(
-            "UPDATE _meta.workflows SET status='failed' WHERE id=?", [wf_id]
-        )
+        try:
+            con.execute(
+                "UPDATE _meta.workflows SET status='failed' WHERE id=?", [wf_id]
+            )
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/workflows/{wf_id}/status")
+async def workflow_status(wf_id: str):
+    """Check workflow execution status (Temporal or local)."""
+    try:
+        result = con.execute(
+            "SELECT status, last_run FROM _meta.workflows WHERE id = ?", [wf_id]
+        ).fetchone()
+        if not result:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        status_info = {"status": result[0], "last_run": result[1]}
+        
+        # Try Temporal for richer status
+        try:
+            from workflows import get_workflow_status
+            temporal_status = await get_workflow_status(wf_id)
+            status_info["temporal"] = temporal_status
+        except Exception:
+            pass
+        
+        return status_info
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -798,11 +922,66 @@ def delete_workflow(wf_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ─── FTP Import ──────────────────────────────────────────────────────────────
+
+@app.post("/api/ftp/import")
+def ftp_import(host: str = Form(...), port: int = Form(21),
+               username: str = Form("anonymous"), password: str = Form(""),
+               remote_path: str = Form(...), table_name: str = Form("ftp_import")):
+    """Import a file from FTP/SFTP into a DuckDB table."""
+    try:
+        import paramiko
+        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in table_name)
+        
+        # Try SFTP first, fall back to FTP
+        try:
+            transport = paramiko.Transport((host, port))
+            transport.connect(username=username, password=password)
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            
+            suffix = os.path.splitext(remote_path)[1].lower()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                sftp.get(remote_path, tmp.name)
+                tmp_path = tmp.name
+            sftp.close()
+            transport.close()
+        except Exception:
+            import ftplib
+            ftp = ftplib.FTP()
+            ftp.connect(host, port)
+            ftp.login(username, password)
+            suffix = os.path.splitext(remote_path)[1].lower()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                ftp.retrbinary(f"RETR {remote_path}", tmp.write)
+                tmp_path = tmp.name
+            ftp.quit()
+        
+        if suffix in (".csv", ".tsv"):
+            con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_csv_auto('{tmp_path}')")
+        elif suffix == ".parquet":
+            con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_parquet('{tmp_path}')")
+        elif suffix in (".json", ".jsonl"):
+            con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_json_auto('{tmp_path}')")
+        else:
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {suffix}")
+        
+        count = con.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
+        os.unlink(tmp_path)
+        return {"message": f"Imported {count} rows from FTP into {safe_name}", "rowCount": count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ─── Persist (manual trigger) ───────────────────────────────────────────────
 
 @app.post("/api/persist")
 def persist():
     """Manually trigger a checkpoint + MinIO backup."""
+    if PRIVACY_MODE:
+        return {"message": "Privacy mode: no persistence"}
     try:
         persist_to_minio()
         return {"message": "Database persisted to MinIO"}
