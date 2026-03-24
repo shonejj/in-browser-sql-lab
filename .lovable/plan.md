@@ -1,191 +1,88 @@
 
 
-## Plan: Comprehensive Stability, Workflow Stack, and Platform Architecture Fix
+## Plan: Fix Ctrl+Enter in Server Mode, Remove Duplicate Nav, Fix Monaco Theme, and Align Features
 
-This plan addresses all identified issues across three tiers: core stability, workflow stack, and platform architecture.
+### Critical Bug 1: Ctrl+Enter Not Executing in Server Mode
 
----
+**Root Cause:** In `QueryEditor.tsx` line 246-248, the Monaco `addCommand` captures a stale closure of `handleExecute`. The `handleExecute` function (line 30-37) calls `validateSQL(query)` where `query` is a prop. Since `onMount` runs once, it captures the initial `query` value (the welcome comment). When the user types a new query and presses Ctrl+Enter, it validates against the OLD query, which may fail validation or call the wrong `onExecute`.
 
-### Tier 1: Core Stability
+**Fix:** Use a `useRef` to hold the latest `onExecute` and `query` values. In the Monaco `addCommand`, call `ref.current()` instead of the stale `handleExecute`. Also fix the hardcoded `theme="vs-light"` (line 250) to respect dark mode by using `theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}`.
 
-#### 1.1 Remove Default "FROM trains" Query Cell
-**Problem:** On startup, the first cell contains `FROM trains;` which immediately errors because no sample data is loaded yet (screenshot confirms "Table trains does not exist").
-
-**Fix:** Change `initialQuery` in `src/lib/sampleData.ts` to a welcome comment without any table reference. After loading sample data, auto-populate a cell with the trains query.
-
-**Files:** `src/lib/sampleData.ts`, `src/pages/Index.tsx`
-
-#### 1.2 Server-Mode Sidebar Shows No Tables
-**Problem:** In server mode, `refreshTables()` calls `backendListTables()` which hits `/api/tables`. The backend filters by `table_catalog = 'main'` which may exclude tables from attached DuckDB files loaded from MinIO. Also the init sequence may call `refreshTables` before the backend has finished restoring from MinIO.
-
-**Fix:**
-- Remove the `table_catalog = 'main'` filter in `backend/main.py` `/api/tables` -- just filter by `table_schema = 'main'`
-- Add retry logic in `refreshTables()` for server mode with a short delay
-- Make `initializeDatabase()` await a health check confirmation before calling `refreshTables()`
-
-**Files:** `backend/main.py`, `src/pages/Index.tsx`
-
-#### 1.3 Backend URL: Use Relative Paths in Docker
-**Problem:** `DEFAULT_BACKEND_URL = 'http://localhost:9876'` works for local dev but breaks when the frontend is served from Docker (nginx proxies `/api` to backend). When running via docker-compose, the frontend should use relative `/api/` paths.
-
-**Fix:** Add logic in `duckdb.ts`: if the current page URL is NOT `localhost`, use relative URLs (just `/api/...`) since nginx will proxy them. Only use absolute `localhost:9876` when running in local dev mode.
-
-**Files:** `src/lib/duckdb.ts`
-
-#### 1.4 Disable "Attached databases +" Button or Make it Functional
-**Problem:** The "+" button next to "Attached databases" is disabled with "coming soon" tooltip. It's confusing.
-
-**Fix:** In server mode, wire the + button to open the `DatabaseConnector` dialog. In WASM mode, wire it to open the `DuckDBFileAttacher` dialog. Remove the `disabled` prop.
-
-**Files:** `src/components/DatabaseSidebar.tsx`
-
-#### 1.5 Sample Data: Show Cell Only After Loading
-**Problem:** Sample data loads trains via button, but the initial cell still references trains. 
-
-**Fix:** When "Load Sample Data" is clicked, replace the current empty/welcome cell content with `FROM trains;` and auto-execute it, instead of expecting the user to manually type it.
-
-**Files:** `src/pages/Index.tsx`
-
-#### 1.6 Server-Mode Feature Parity
-**Problem:** Several WASM features work via `executeQuery()` which already routes through the backend in server mode -- so most SQL operations work. However, `getConnection()` and `getDatabase()` return `null` in backend mode, which breaks any component that directly calls WASM APIs.
-
-**Audit results -- things that already work in server mode:**
-- SQL queries (executeQuery routes through backend)
-- Table refresh (backendListTables)
-- File import (backendImportFile)
-- DB attach (backendAttachDatabase)
-- S3 connector, File Manager, Connectors, Extensions
-- Table Details Panel (uses executeQuery for PRAGMA -- works because backend routes all SQL)
-- Data Toolbar (generates SQL -- works through executeQuery)
-- CSV Import (handleImportCSV uses executeQuery for batch inserts)
-
-**Things that break in server mode:**
-- `DatabaseConnector.tsx` line 118-126: calls `getConnection()` and `getDatabase()` directly for WASM file buffer registration -- but has a backend path already, so OK
-- `DuckDBFileAttacher.tsx` line 38: calls `getDatabase()` for WASM -- has backend fallback, OK
-- `exportDuckDB()` WASM path uses `conn!.query()` directly -- has backend path, OK
-
-**Conclusion:** Server mode actually has good parity for SQL operations. The main issue is the sidebar not showing tables (1.2) and the backend URL issue (1.3).
+**File:** `src/components/QueryEditor.tsx`
 
 ---
 
-### Tier 2: Workflow & Temporal Stack
+### Bug 2: Duplicate Nav Items (File Manager, Connectors, Workflows)
 
-#### 2.1 Create Temporal Worker Module
-**Problem:** `backend/workflows.py` does not exist. The docker-compose runs Temporal but the backend has zero Temporal client code. Workflow execution is synchronous inside the FastAPI request handler.
+**Problem:** In server mode, File Manager, Connectors, and Workflows appear in both:
+- The sidebar footer (`DatabaseSidebar.tsx` lines 213-230)
+- The top bar Tools dropdown (`Index.tsx` lines 505-526)
 
-**Fix:** Create `backend/workflows.py` with:
-- A Temporal activity that executes a workflow step (source/transform/destination)
-- A Temporal workflow that runs steps sequentially
-- A Temporal worker that polls the `duckdb-lab` task queue
-- Startup code to connect to Temporal
+**Fix:** Remove the duplicate buttons from `DatabaseSidebar.tsx` footer (lines 213-230). Keep them only in the top bar Tools dropdown, which is cleaner and less cluttered. The sidebar should focus on database tree navigation only.
 
-Create `backend/worker.py` as the entrypoint for running the Temporal worker process.
-
-**Files:** `backend/workflows.py`, `backend/worker.py`
-
-#### 2.2 Update Backend to Use Temporal Client
-**Problem:** `/api/workflows/{id}/run` executes steps synchronously. Should dispatch to Temporal.
-
-**Fix:** In `backend/main.py`:
-- Import `temporalio.client`
-- On startup, connect to Temporal server (configurable endpoint via `TEMPORAL_HOST` env var, default `temporal:7233`)
-- `/api/workflows/{id}/run` starts a Temporal workflow execution instead of running inline
-- Add `/api/workflows/{id}/status` endpoint to check execution status
-
-**Files:** `backend/main.py`
-
-#### 2.3 Platform-Ready Temporal: Bring Your Own
-**Problem:** Users should be able to connect their own Temporal server instead of the bundled one.
-
-**Fix:**
-- Add `TEMPORAL_HOST` and `TEMPORAL_NAMESPACE` env vars to backend
-- Make Temporal connection optional (graceful degradation: if Temporal unavailable, fall back to synchronous execution)
-- Add a Temporal configuration section in the Connectors Panel UI
-- Store Temporal config in `_meta.connections` with type `temporal`
-
-**Files:** `backend/main.py`, `src/components/ConnectorsPanel.tsx`
-
-#### 2.4 Docker Compose: Add Worker Service
-**Problem:** The Temporal worker needs to run as a separate process.
-
-**Fix:** Add a `worker` service to docker-compose that runs `python worker.py`:
-```
-worker:
-  build: ./backend
-  command: python worker.py
-  depends_on: [temporal, minio]
-  environment: [same as backend]
-  network: duckdb-net
-```
-
-**Files:** `docker-compose.yml`, `backend/Dockerfile` (copy worker.py and workflows.py)
-
-#### 2.5 Temporal Env Vars Documentation
-Add `TEMPORAL_HOST`, `TEMPORAL_NAMESPACE` to the README environment variables table.
-
-**Files:** `README.md`
+**File:** `src/components/DatabaseSidebar.tsx`
 
 ---
 
-### Tier 3: Platform Architecture (Multi-Tenant / BYO Everything)
+### Bug 3: Monaco Editor Theme Not Following Dark Mode
 
-#### 3.1 Bring Your Own Storage (BYO-S3)
-**Problem:** Currently hardcoded to the bundled MinIO. Users should connect their own S3/MinIO endpoint.
+**Problem:** `QueryEditor.tsx` line 250 hardcodes `theme="vs-light"`. In dark mode, the editor stays light.
 
-**Fix:** The S3 connector and connector panel already support custom S3 endpoints. Make the backend's MinIO persistence configurable:
-- If `MINIO_ENDPOINT` env var is set, use it for auto-persistence
-- If not set, skip auto-persistence (user manages their own storage)
-- Add a "Storage Settings" section to Connectors Panel where users can configure the persistence target
+**Fix:** Use `theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}` (already imports `useTheme` from next-themes on line 7).
 
-**Files:** `backend/main.py`, `src/components/ConnectorsPanel.tsx`
+**File:** `src/components/QueryEditor.tsx`
 
-#### 3.2 All Data Passes Through, Nothing Stored (Privacy Mode)
-**Problem:** Platform-as-a-service model: ETL operations execute here but data lives in user's infrastructure.
+---
 
-**Fix:**
-- Add a `PRIVACY_MODE` env var to backend. When enabled:
-  - DuckDB runs in `:memory:` mode (no file persistence)
-  - No auto-backup to MinIO
-  - All S3/DB credentials are session-only (not stored in `_meta`)
-- Add a badge in the UI showing "Privacy Mode" when enabled
-- Document this mode in README
+### Fix 4: File Manager -- Add "Import to DuckDB" from MinIO
 
-**Files:** `backend/main.py`, `src/pages/Index.tsx`, `README.md`
+**Problem:** The File Manager lets you browse MinIO files but has no direct "import this file as a DuckDB table" action.
 
-#### 3.3 External Temporal Workers
-**Problem:** Temporal workers should be connectable from different servers.
+**Fix:** Add an "Import to DuckDB" button next to each CSV/Parquet/JSON file in `FileManager.tsx`. When clicked, it calls the backend `/api/import` endpoint with the MinIO file path, or downloads and re-uploads via `/api/s3/import` if available. The backend already supports `COPY ... FROM 's3://...'` queries.
 
-**Fix:** Already addressed by 2.3 (TEMPORAL_HOST env var). The Temporal task queue name (`duckdb-lab`) is the contract -- external workers poll the same queue. Document how to run a remote worker.
+**File:** `src/components/FileManager.tsx`
 
-**Files:** `README.md`
+---
 
-#### 3.4 Better Error Handling Throughout
-**Problem:** Many operations silently fail or show generic errors.
+### Fix 5: Workflow Builder Improvements
 
-**Fix:**
-- Backend: Add structured error responses with error codes
-- Frontend: Show specific error messages with suggested actions (e.g., "Backend not reachable. Check if docker-compose is running.")
-- Add error boundaries around each feature panel (FileManager, ConnectorsPanel, WorkflowBuilder)
+**Problem:** The workflow builder only has basic source/transform/destination with minimal config. Not close to n8n-level. Steps don't have proper node types like "Read from MinIO", "MySQL Query", "HTTP Request", etc.
 
-**Files:** `backend/main.py`, `src/pages/Index.tsx`
+**Fix:** Enhance the step configuration in `WorkflowBuilder.tsx`:
+- Add predefined source types: MinIO File, MySQL Query, PostgreSQL Query, HTTP/API, FTP File
+- Add predefined transform types: SQL Query, Filter, Aggregate, Join, Deduplicate
+- Add predefined destination types: MinIO/S3, MySQL Insert, API POST, DuckDB Table
+- Each type shows relevant config fields (endpoint, query, path, table name, etc.)
+- Show step status indicators when running
+- Add a "Logs" tab to see execution output
+
+**File:** `src/components/WorkflowBuilder.tsx`
+
+---
+
+### Fix 6: Ensure All Compute/DataToolbar Operations Work in Server Mode
+
+**Problem:** The `DataToolbar` generates SQL queries and adds them as new cells. This uses `executeQuery()` which routes through the backend in server mode. The queries reference `_last_result` as table name which doesn't exist.
+
+**Fix:** Update `DataToolbar` to accept the actual source table name from the last executed query. In `Index.tsx`, pass the source table name extracted from the last query (parse FROM clause). If no table found, use a subquery approach: `SELECT ... FROM (last_query) AS _src`.
+
+**Files:** `src/components/DataToolbar.tsx`, `src/pages/Index.tsx`
+
+---
+
+### Fix 7: History and New Cell Features Parity
+
+These already work in both modes since they're purely frontend state management. No changes needed -- verified that `handleAddCell`, `queryHistory`, and `handleNotebookSelect` don't depend on WASM-specific APIs.
 
 ---
 
 ### Summary of All Changes
 
-**New files:**
-1. `backend/workflows.py` -- Temporal workflow and activity definitions
-2. `backend/worker.py` -- Temporal worker entrypoint
-
 **Modified files:**
-1. `src/lib/sampleData.ts` -- Remove trains reference from initialQuery
-2. `src/lib/duckdb.ts` -- Smart backend URL detection (relative vs absolute)
-3. `src/pages/Index.tsx` -- Fix sample data flow, improve error messages, add privacy mode badge
-4. `src/components/DatabaseSidebar.tsx` -- Wire "+" button to appropriate dialog
-5. `backend/main.py` -- Fix table_catalog filter, add Temporal client, add privacy mode, better errors
-6. `backend/Dockerfile` -- Copy workflows.py and worker.py
-7. `backend/requirements.txt` -- Add temporalio
-8. `docker-compose.yml` -- Add worker service, add TEMPORAL_HOST env vars
-9. `src/components/ConnectorsPanel.tsx` -- Add Temporal and Storage configuration sections
-10. `README.md` -- Document new env vars, privacy mode, remote workers
+1. `src/components/QueryEditor.tsx` -- Fix stale closure for Ctrl+Enter, fix dark theme
+2. `src/components/DatabaseSidebar.tsx` -- Remove duplicate File Manager/Connectors/Workflows buttons from footer
+3. `src/components/FileManager.tsx` -- Add "Import to DuckDB" action for MinIO files
+4. `src/components/WorkflowBuilder.tsx` -- Enhanced step types with proper config fields
+5. `src/components/DataToolbar.tsx` -- Fix source table reference for server mode
+6. `src/pages/Index.tsx` -- Pass source table info to DataToolbar
 
