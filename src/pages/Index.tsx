@@ -439,6 +439,14 @@ const Index = () => {
     return [];
   }, [cells, selectedCellId]);
 
+  // Extract source table name from the selected cell's query for DataToolbar
+  const currentSourceTable = useMemo(() => {
+    const cell = cells.find(c => c.id === selectedCellId);
+    if (!cell?.query) return undefined;
+    const match = cell.query.match(/\bFROM\s+["']?(\w+)["']?/i);
+    return match ? match[1] : undefined;
+  }, [cells, selectedCellId]);
+
   return (
     <div className="flex h-screen bg-background">
       {leftSidebarOpen && (
