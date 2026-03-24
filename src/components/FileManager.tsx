@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
-import { getBackendUrl } from '@/lib/duckdb';
+import { backendImportFromS3, getBackendUrl } from '@/lib/duckdb';
 import {
   FolderOpen, File, Upload, Download, Trash2, FolderPlus,
   RefreshCw, Copy, Link, ChevronRight, Home, ArrowUp, Database
@@ -153,20 +153,12 @@ export function FileManager({ open, onOpenChange, onImportComplete }: FileManage
     const tableName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
     try {
       toast.loading(`Importing ${file.name}...`, { id: 'import-s3' });
-      const s3Path = `s3://${bucket}/${file.key}`;
-      const res = await fetch(`${backendUrl}/api/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql: `CREATE TABLE "${tableName}" AS SELECT * FROM '${s3Path}'` }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Import failed');
-      }
-      toast.success(`Imported as table "${tableName}"`, { id: 'import-s3' });
+      const data = await backendImportFromS3(bucket, file.key, tableName, true);
+      toast.success(data.message || `Imported as table "${tableName}"`, { id: 'import-s3' });
       onImportComplete?.();
     } catch (err: any) {
-      toast.error(`Import failed: ${err.message}`, { id: 'import-s3' });
+      const message = typeof err?.message === 'string' ? err.message : 'Import failed';
+      toast.error(`Import failed: ${message}`, { id: 'import-s3' });
     }
   };
 
