@@ -262,6 +262,9 @@ export function FileManager({ open, onOpenChange, onImportComplete }: FileManage
                 <div className="flex items-center gap-0.5 justify-end">
                   {!file.is_folder && (
                     <>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleImportToDuckDB(file)} title="Import to DuckDB">
+                        <Database className="w-3 h-3" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDownload(file.key)} title="Download">
                         <Download className="w-3 h-3" />
                       </Button>
