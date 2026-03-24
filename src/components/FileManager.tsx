@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { getBackendUrl } from '@/lib/duckdb';
 import {
   FolderOpen, File, Upload, Download, Trash2, FolderPlus,
-  RefreshCw, Copy, Link, ChevronRight, Home, ArrowUp
+  RefreshCw, Copy, Link, ChevronRight, Home, ArrowUp, Database
 } from 'lucide-react';
 
 interface FileManagerProps {
