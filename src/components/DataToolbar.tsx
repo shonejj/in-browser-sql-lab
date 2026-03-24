@@ -113,7 +113,7 @@ export function DataToolbar({ columns, tableName, sourceQuery, onGenerateQuery }
         const isNumOp = ['>', '<', '>=', '<='].includes(filterOp);
         const val = isNumOp ? filterVal : `'${filterVal.replace(/'/g, "''")}'`;
         const op = filterOp === 'LIKE'
-          ? `LIKE '%${filterVal.replace(/'/g, "''")}%'
+          ? `LIKE '%${filterVal.replace(/'/g, "''")}%'`
           : ['IS NULL', 'IS NOT NULL'].includes(filterOp)
             ? filterOp
             : `${filterOp} ${val}`;
