@@ -585,7 +585,7 @@ const Index = () => {
         {/* Data Toolbar */}
         {currentColumns.length > 0 && (
           <div className="px-6 pt-4">
-            <DataToolbar columns={currentColumns} onGenerateQuery={handleToolbarGenerateQuery} />
+            <DataToolbar columns={currentColumns} tableName={currentSourceTable} onGenerateQuery={handleToolbarGenerateQuery} />
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play, ChevronDown, ChevronRight, AlertCircle, Lightbulb } from 'lucide-react';
 import { Button } from './ui/button';
@@ -18,6 +18,12 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { theme } = useTheme();
 
+  // Refs to avoid stale closures in Monaco commands
+  const onExecuteRef = useRef(onExecute);
+  const queryRef = useRef(query);
+  useEffect(() => { onExecuteRef.current = onExecute; }, [onExecute]);
+  useEffect(() => { queryRef.current = query; }, [query]);
+
   useEffect(() => {
     if (query.trim()) {
       const result = validateSQL(query);
@@ -27,14 +33,13 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
     }
   }, [query]);
 
-  const handleExecute = () => {
-    const result = validateSQL(query);
+  const handleExecute = useCallback(() => {
+    const result = validateSQL(queryRef.current);
     if (!result.valid) {
-      setValidation(result);
       return;
     }
-    onExecute();
-  };
+    onExecuteRef.current();
+  }, []);
 
   const applySuggestion = () => {
     if (validation?.suggestion) {
@@ -42,7 +47,6 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
       setValidation(null);
     }
   };
-
 
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-card">
@@ -108,49 +112,32 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
               onMount={(editor, monaco) => {
                 const tables = (window as any).__duckdb_tables__ || [];
                 const sqlKeywords = [
-                  // Basic Keywords
                   'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS', 'ON', 'AS',
                   'GROUP', 'BY', 'ORDER', 'ASC', 'DESC', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'FIRST', 'NEXT', 'ROW', 'ROWS', 'ONLY',
-                  // DML
                   'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'TRUNCATE', 'MERGE',
-                  // DDL
                   'CREATE', 'TABLE', 'DROP', 'ALTER', 'ADD', 'COLUMN', 'INDEX', 'VIEW', 'SEQUENCE', 'DATABASE', 'SCHEMA',
-                  // Data Types
                   'INTEGER', 'BIGINT', 'SMALLINT', 'TINYINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'NUMERIC',
                   'VARCHAR', 'CHAR', 'TEXT', 'STRING', 'BOOLEAN', 'BOOL', 'DATE', 'TIMESTAMP', 'TIME', 'INTERVAL',
                   'BLOB', 'JSON', 'UUID', 'ARRAY', 'LIST', 'STRUCT', 'MAP',
-                  // Functions & Operators
                   'DISTINCT', 'ALL', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'STDDEV', 'VARIANCE',
                   'CAST', 'CONVERT', 'COALESCE', 'NULLIF', 'IFNULL', 'NVL',
-                  // Conditional
                   'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'IF', 'IIF',
-                  // Logical
                   'AND', 'OR', 'NOT', 'XOR', 'IN', 'NOT IN', 'EXISTS', 'NOT EXISTS',
-                  // Comparison
-                  'NULL', 'IS', 'IS NOT', 'LIKE', 'ILIKE', 'SIMILAR TO', 'BETWEEN', 'ANY', 'ALL', 'SOME',
-                  // Set Operations
+                  'NULL', 'IS', 'IS NOT', 'LIKE', 'ILIKE', 'SIMILAR TO', 'BETWEEN', 'ANY', 'SOME',
                   'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT', 'MINUS',
-                  // Window Functions
                   'OVER', 'PARTITION', 'RANGE', 'UNBOUNDED', 'PRECEDING', 'FOLLOWING', 'CURRENT',
                   'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
-                  // String Functions
                   'CONCAT', 'SUBSTRING', 'SUBSTR', 'LENGTH', 'UPPER', 'LOWER', 'TRIM', 'LTRIM', 'RTRIM',
                   'REPLACE', 'SPLIT', 'REGEXP_MATCHES', 'REGEXP_REPLACE',
-                  // Date Functions
                   'NOW', 'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'EXTRACT', 'DATE_PART',
                   'DATE_TRUNC', 'DATE_ADD', 'DATE_SUB', 'DATEDIFF', 'DATEADD',
-                  // Aggregate Extensions
-                  'STRING_AGG', 'ARRAY_AGG', 'LIST', 'APPROX_COUNT_DISTINCT', 'MEDIAN', 'MODE', 'PERCENTILE',
-                  // DuckDB Specific
+                  'STRING_AGG', 'ARRAY_AGG', 'APPROX_COUNT_DISTINCT', 'MEDIAN', 'MODE', 'PERCENTILE',
                   'COPY', 'PRAGMA', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'ANALYZE', 'ATTACH', 'DETACH',
                   'READ_CSV', 'READ_CSV_AUTO', 'READ_PARQUET', 'READ_JSON', 'WRITE_CSV',
-                  // Constraints
                   'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES', 'UNIQUE', 'CHECK', 'DEFAULT', 'NOT NULL',
-                  // Other
                   'TRUE', 'FALSE', 'WITH', 'RECURSIVE', 'USING', 'NATURAL', 'LATERAL', 'TABLESAMPLE',
                 ];
 
-                // Enhanced SQL autocomplete with tables, columns, and snippets
                 monaco.languages.registerCompletionItemProvider('sql', {
                   provideCompletionItems: (model, position) => {
                     const word = model.getWordUntilPosition(position);
@@ -161,17 +148,18 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
                       endColumn: word.endColumn,
                     };
 
+                    // Get fresh table list
+                    const currentTables = (window as any).__duckdb_tables__ || tables;
+
                     const suggestions: any[] = [
-                      // SQL Keywords
                       ...sqlKeywords.map(keyword => ({
                         label: keyword,
                         kind: monaco.languages.CompletionItemKind.Keyword,
                         insertText: keyword,
                         range,
-                        sortText: '0' + keyword, // Prioritize keywords
+                        sortText: '0' + keyword,
                       })),
-                      // Tables
-                      ...tables.map((table: string) => ({
+                      ...currentTables.map((table: string) => ({
                         label: table,
                         kind: monaco.languages.CompletionItemKind.Class,
                         insertText: `"${table}"`,
@@ -180,14 +168,12 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
                         range,
                         sortText: '1' + table,
                       })),
-                      // SQL Snippets
                       {
                         label: 'SELECT * FROM',
                         kind: monaco.languages.CompletionItemKind.Snippet,
                         insertText: 'SELECT * FROM "${1:table}"',
                         insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                         detail: 'Select all from table',
-                        documentation: 'SELECT * FROM "table"',
                         range,
                         sortText: '2select',
                       },
@@ -199,24 +185,6 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
                         detail: 'Insert into table',
                         range,
                         sortText: '2insert',
-                      },
-                      {
-                        label: 'UPDATE SET',
-                        kind: monaco.languages.CompletionItemKind.Snippet,
-                        insertText: 'UPDATE "${1:table}" SET ${2:column} = ${3:value} WHERE ${4:condition}',
-                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                        detail: 'Update table',
-                        range,
-                        sortText: '2update',
-                      },
-                      {
-                        label: 'DELETE FROM',
-                        kind: monaco.languages.CompletionItemKind.Snippet,
-                        insertText: 'DELETE FROM "${1:table}" WHERE ${2:condition}',
-                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                        detail: 'Delete from table',
-                        range,
-                        sortText: '2delete',
                       },
                       {
                         label: 'CREATE TABLE',
@@ -242,12 +210,15 @@ export function QueryEditor({ query, onQueryChange, onExecute, isExecuting }: Qu
                   },
                 });
 
-                // Add Ctrl+Enter keyboard shortcut
+                // Ctrl+Enter uses refs to always get latest values
                 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-                  handleExecute();
+                  const result = validateSQL(queryRef.current);
+                  if (result.valid) {
+                    onExecuteRef.current();
+                  }
                 });
               }}
-              theme="vs-light"
+              theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
               options={{
                 minimap: { enabled: false },
                 fontSize: 13,

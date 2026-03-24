@@ -210,25 +210,6 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
             </Button>
           )}
         </div>
-        {backend && (
-          <div className="flex gap-1">
-            {onOpenFileManager && (
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-sidebar-foreground hover:bg-sidebar-accent flex-1" onClick={onOpenFileManager}>
-                <FolderOpen className="w-3 h-3 mr-1" /> Files
-              </Button>
-            )}
-            {onOpenConnectors && (
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-sidebar-foreground hover:bg-sidebar-accent flex-1" onClick={onOpenConnectors}>
-                <Plug className="w-3 h-3 mr-1" /> Connectors
-              </Button>
-            )}
-            {onOpenWorkflows && (
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-sidebar-foreground hover:bg-sidebar-accent flex-1" onClick={onOpenWorkflows}>
-                <GitBranch className="w-3 h-3 mr-1" /> Workflows
-              </Button>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
