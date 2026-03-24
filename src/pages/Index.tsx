@@ -419,9 +419,40 @@ const Index = () => {
     }
   }
 
-  function handleToolbarGenerateQuery(query: string) {
+  async function handleToolbarGenerateQuery(
+    query: string,
+    options?: {
+      applyToTable?: boolean;
+      refreshQuery?: string;
+      successMessage?: string;
+    }
+  ) {
+    if (options?.applyToTable) {
+      const executionCellId = selectedCellId || cells[0]?.id;
+      if (!executionCellId) return;
+
+      setCells(prev => prev.map(c => c.id === executionCellId ? { ...c, isExecuting: true } : c));
+      try {
+        await executeQuery(query);
+        const refreshedResults = options.refreshQuery ? await executeQuery(options.refreshQuery) : [];
+        setCells(prev => prev.map(c => c.id === executionCellId ? {
+          ...c,
+          query: options.refreshQuery || c.query,
+          results: refreshedResults,
+          isExecuting: false,
+        } : c));
+        await refreshTables();
+        toast.success(options.successMessage || 'Transformation applied');
+      } catch (error: any) {
+        setCells(prev => prev.map(c => c.id === executionCellId ? { ...c, isExecuting: false } : c));
+        toast.error(error?.message || 'Failed to apply transformation');
+      }
+      return;
+    }
+
     const newCell: QueryCell = { id: Date.now().toString(), query, results: [], isExecuting: false };
     setCells(prev => [...prev, newCell]);
+    setSelectedCellId(newCell.id);
     setTimeout(() => handleExecuteQuery(newCell.id), 200);
   }
 
@@ -593,7 +624,12 @@ const Index = () => {
         {/* Data Toolbar */}
         {currentColumns.length > 0 && (
           <div className="px-6 pt-4">
-            <DataToolbar columns={currentColumns} tableName={currentSourceTable} onGenerateQuery={handleToolbarGenerateQuery} />
+            <DataToolbar
+              columns={currentColumns}
+              tableName={currentSourceTable}
+              sourceQuery={cells.find(c => c.id === selectedCellId)?.query}
+              onGenerateQuery={handleToolbarGenerateQuery}
+            />
           </div>
         )}
 

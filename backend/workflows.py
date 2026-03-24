@@ -57,6 +57,12 @@ class StepResult:
 # ─── Activities ──────────────────────────────────────────────────────────────
 
 if TEMPORAL_AVAILABLE:
+    def _run_step_query(con, query: str) -> dict:
+        result = con.execute(query)
+        row_count = len(result.fetchall()) if result.description else 0
+        return {"success": True, "rows_affected": row_count}
+
+
     @activity.defn
     async def execute_workflow_step(step_data: dict) -> dict:
         """Execute a single workflow step (source/transform/destination)."""
@@ -75,6 +81,7 @@ if TEMPORAL_AVAILABLE:
                     pass
 
             query = config.get("query", "")
+            output_table = config.get("table_name") or config.get("output_table") or "workflow_output"
             
             if step_type == "source":
                 source_type = config.get("source_type", "")
@@ -82,19 +89,34 @@ if TEMPORAL_AVAILABLE:
                     con.execute("INSTALL mysql; LOAD mysql;")
                 elif source_type == "postgresql":
                     con.execute("INSTALL postgres; LOAD postgres;")
-                
+                elif source_type in ("s3", "ftp", "http", "webhook"):
+                    try:
+                        con.execute("LOAD 'httpfs';")
+                    except Exception:
+                        pass
+
                 if query:
-                    result = con.execute(query)
-                    row_count = len(result.fetchall()) if result.description else 0
+                    if source_type in ("s3", "ftp", "http") and not query.strip().upper().startswith("SELECT"):
+                        ext = os.path.splitext(query)[1].lower()
+                        if ext in (".csv", ".tsv"):
+                            sql = f'CREATE OR REPLACE TABLE "{output_table}" AS SELECT * FROM read_csv_auto(\'{query}\')'
+                        elif ext == ".parquet":
+                            sql = f'CREATE OR REPLACE TABLE "{output_table}" AS SELECT * FROM read_parquet(\'{query}\')'
+                        elif ext in (".json", ".jsonl", ".ndjson"):
+                            sql = f'CREATE OR REPLACE TABLE "{output_table}" AS SELECT * FROM read_json_auto(\'{query}\')'
+                        else:
+                            sql = query
+                        result_info = _run_step_query(con, sql)
+                    else:
+                        result_info = _run_step_query(con, query)
                     con.close()
-                    return {"step_id": step_id, "success": True, "message": f"Source executed: {row_count} rows", "rows_affected": row_count}
+                    return {"step_id": step_id, "success": True, "message": f"Source executed: {result_info['rows_affected']} rows", "rows_affected": result_info["rows_affected"]}
 
             elif step_type == "transform":
                 if query:
-                    result = con.execute(query)
-                    row_count = len(result.fetchall()) if result.description else 0
+                    result_info = _run_step_query(con, query)
                     con.close()
-                    return {"step_id": step_id, "success": True, "message": f"Transform executed: {row_count} rows", "rows_affected": row_count}
+                    return {"step_id": step_id, "success": True, "message": f"Transform executed: {result_info['rows_affected']} rows", "rows_affected": result_info["rows_affected"]}
 
             elif step_type == "destination":
                 dest_type = config.get("dest_type", "")
@@ -105,7 +127,7 @@ if TEMPORAL_AVAILABLE:
                     con.close()
                     return {"step_id": step_id, "success": True, "message": f"Exported to {s3_path}"}
                 elif query:
-                    con.execute(query)
+                    _run_step_query(con, query)
                     con.close()
                     return {"step_id": step_id, "success": True, "message": "Destination query executed"}
 
@@ -208,7 +230,6 @@ async def _run_sync(workflow_id: str, name: str, steps: list) -> dict:
     con = duckdb.connect(DUCKDB_PATH)
     
     for step in steps:
-        step_type = step.get("type", "")
         config = step.get("config", {})
         query = config.get("query", "")
         

@@ -14,14 +14,37 @@ import { toast } from 'sonner';
 interface DataToolbarProps {
   columns: string[];
   tableName?: string;
-  onGenerateQuery: (query: string) => void;
+  sourceQuery?: string;
+  onGenerateQuery: (
+    query: string,
+    options?: {
+      applyToTable?: boolean;
+      refreshQuery?: string;
+      successMessage?: string;
+    }
+  ) => void;
 }
 
 type OperationType = 'compute' | 'filter' | 'aggregate' | 'sort' | 'fuzzy' | 'dedup' | 'cast' | 'string' | 'date' | 'case';
 
-export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbarProps) {
+export function DataToolbar({ columns, tableName, sourceQuery, onGenerateQuery }: DataToolbarProps) {
   const [activeDialog, setActiveDialog] = useState<OperationType | null>(null);
-  const sourceTable = tableName || '_last_result';
+
+  const getSourceReference = () => {
+    if (tableName) return `"${tableName}"`;
+    const trimmed = (sourceQuery || '').trim().replace(/;\s*$/, '');
+    return trimmed ? `(${trimmed}) AS _src` : '_last_result';
+  };
+
+  const buildTableTransformQuery = (selectQuery: string) => {
+    if (!tableName) return null;
+    const selectWithoutSemicolon = selectQuery.trim().replace(/;\s*$/, '');
+    return {
+      query: `CREATE OR REPLACE TABLE "${tableName}" AS ${selectWithoutSemicolon.replace(/^SELECT/i, 'SELECT')};`,
+      refreshQuery: `SELECT * FROM "${tableName}";`,
+      successMessage: `Updated table "${tableName}"`,
+    };
+  };
 
   // Compute Column state
   const [computeCol1, setComputeCol1] = useState('');
@@ -76,17 +99,26 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
 
   const handleGenerate = () => {
     let query = '';
+    const sourceTable = getSourceReference();
+    let applyInPlace = false;
+
     switch (activeDialog) {
       case 'compute': {
         const right = computeUseConstant ? computeConstant : `"${computeCol2}"`;
         query = `SELECT *, ("${computeCol1}" ${computeOp} ${right}) AS "${computeAlias}" FROM ${sourceTable};`;
+        applyInPlace = true;
         break;
       }
       case 'filter': {
         const isNumOp = ['>', '<', '>=', '<='].includes(filterOp);
         const val = isNumOp ? filterVal : `'${filterVal.replace(/'/g, "''")}'`;
-        const op = filterOp === 'LIKE' ? `LIKE '%${filterVal}%'` : `${filterOp} ${val}`;
+        const op = filterOp === 'LIKE'
+          ? `LIKE '%${filterVal.replace(/'/g, "''")}%'`
+          : ['IS NULL', 'IS NOT NULL'].includes(filterOp)
+            ? filterOp
+            : `${filterOp} ${val}`;
         query = `SELECT * FROM ${sourceTable} WHERE "${filterCol}" ${op};`;
+        applyInPlace = true;
         break;
       }
       case 'aggregate': {
@@ -100,6 +132,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
       }
       case 'sort': {
         query = `SELECT * FROM ${sourceTable} ORDER BY "${sortCol}" ${sortDir};`;
+        applyInPlace = true;
         break;
       }
       case 'fuzzy': {
@@ -116,10 +149,12 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
         } else {
           query = `SELECT DISTINCT * FROM ${sourceTable};`;
         }
+        applyInPlace = true;
         break;
       }
       case 'cast': {
         query = `SELECT *, CAST("${castCol}" AS ${castType}) AS "${castCol}_${castType.toLowerCase()}" FROM ${sourceTable};`;
+        applyInPlace = true;
         break;
       }
       case 'string': {
@@ -129,6 +164,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
             ? `"${stringCol}"` 
             : `${stringOp}("${stringCol}")`;
         query = `SELECT *, ${expr} AS "${stringCol}_${stringOp.toLowerCase()}" FROM ${sourceTable};`;
+        applyInPlace = true;
         break;
       }
       case 'date': {
@@ -136,6 +172,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
           ? `date_diff('day', "${dateCol}", current_date)`
           : `${dateOp === 'year' ? "EXTRACT(YEAR FROM" : dateOp === 'month' ? "EXTRACT(MONTH FROM" : dateOp === 'day' ? "EXTRACT(DAY FROM" : "EXTRACT(HOUR FROM"} "${dateCol}")`;
         query = `SELECT *, ${dateExpr} AS "${dateCol}_${dateOp}" FROM ${sourceTable};`;
+        applyInPlace = true;
         break;
       }
       case 'case': {
@@ -143,14 +180,25 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
         const thenVal = isNaN(Number(caseThenVal)) ? `'${caseThenVal.replace(/'/g, "''")}'` : caseThenVal;
         const elseVal = isNaN(Number(caseElseVal)) ? `'${caseElseVal.replace(/'/g, "''")}'` : caseElseVal;
         query = `SELECT *, CASE WHEN "${caseCol}" ${caseCondOp} ${condVal} THEN ${thenVal} ELSE ${elseVal} END AS "${caseAlias}" FROM ${sourceTable};`;
+        applyInPlace = true;
         break;
       }
     }
 
     if (query) {
-      onGenerateQuery(query);
+      const tableTransform = applyInPlace ? buildTableTransformQuery(query) : null;
+      onGenerateQuery(
+        tableTransform?.query || query,
+        tableTransform
+          ? {
+              applyToTable: true,
+              refreshQuery: tableTransform.refreshQuery,
+              successMessage: tableTransform.successMessage,
+            }
+          : undefined,
+      );
       setActiveDialog(null);
-      toast.success('Query generated and added to new cell');
+      toast.success(tableTransform ? 'Transformation applied to source table' : 'Query generated and added to new cell');
     }
   };
 
@@ -239,7 +287,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               <Input value={computeAlias} onChange={e => setComputeAlias(e.target.value)} />
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -279,7 +327,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               </div>
             )}
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -351,7 +399,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               </Select>
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -435,7 +483,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               <Input value={caseAlias} onChange={e => setCaseAlias(e.target.value)} />
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -459,7 +507,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               ))}
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -491,7 +539,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               </Select>
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -522,7 +570,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               </Select>
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -552,7 +600,7 @@ export function DataToolbar({ columns, tableName, onGenerateQuery }: DataToolbar
               </Select>
             </div>
           </div>
-          <DialogFooter><Button onClick={handleGenerate}>Generate Query</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleGenerate}>{tableName ? 'Apply to Table' : 'Generate Query'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </>
