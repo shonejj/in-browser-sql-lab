@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { getBackendUrl } from '@/lib/duckdb';
 import {
   FolderOpen, File, Upload, Download, Trash2, FolderPlus,
-  RefreshCw, Copy, Link, ChevronRight, Home, ArrowUp
+  RefreshCw, Copy, Link, ChevronRight, Home, ArrowUp, Database
 } from 'lucide-react';
 
 interface FileManagerProps {
@@ -144,6 +144,32 @@ export function FileManager({ open, onOpenChange, onImportComplete }: FileManage
     window.open(url, '_blank');
   };
 
+  const handleImportToDuckDB = async (file: FileItem) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['csv', 'parquet', 'json', 'xlsx'].includes(ext || '')) {
+      toast.error('Only CSV, Parquet, JSON, and XLSX files can be imported');
+      return;
+    }
+    const tableName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
+    try {
+      toast.loading(`Importing ${file.name}...`, { id: 'import-s3' });
+      const s3Path = `s3://${bucket}/${file.key}`;
+      const res = await fetch(`${backendUrl}/api/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: `CREATE TABLE "${tableName}" AS SELECT * FROM '${s3Path}'` }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Import failed');
+      }
+      toast.success(`Imported as table "${tableName}"`, { id: 'import-s3' });
+      onImportComplete?.();
+    } catch (err: any) {
+      toast.error(`Import failed: ${err.message}`, { id: 'import-s3' });
+    }
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '-';
     if (bytes < 1024) return `${bytes} B`;
@@ -262,6 +288,9 @@ export function FileManager({ open, onOpenChange, onImportComplete }: FileManage
                 <div className="flex items-center gap-0.5 justify-end">
                   {!file.is_folder && (
                     <>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleImportToDuckDB(file)} title="Import to DuckDB">
+                        <Database className="w-3 h-3" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDownload(file.key)} title="Download">
                         <Download className="w-3 h-3" />
                       </Button>

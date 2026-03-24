@@ -439,6 +439,14 @@ const Index = () => {
     return [];
   }, [cells, selectedCellId]);
 
+  // Extract source table name from the selected cell's query for DataToolbar
+  const currentSourceTable = useMemo(() => {
+    const cell = cells.find(c => c.id === selectedCellId);
+    if (!cell?.query) return undefined;
+    const match = cell.query.match(/\bFROM\s+["']?(\w+)["']?/i);
+    return match ? match[1] : undefined;
+  }, [cells, selectedCellId]);
+
   return (
     <div className="flex h-screen bg-background">
       {leftSidebarOpen && (
@@ -585,7 +593,7 @@ const Index = () => {
         {/* Data Toolbar */}
         {currentColumns.length > 0 && (
           <div className="px-6 pt-4">
-            <DataToolbar columns={currentColumns} onGenerateQuery={handleToolbarGenerateQuery} />
+            <DataToolbar columns={currentColumns} tableName={currentSourceTable} onGenerateQuery={handleToolbarGenerateQuery} />
           </div>
         )}
 
