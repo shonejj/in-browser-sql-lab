@@ -1,12 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download, FolderOpen, Plug, GitBranch } from 'lucide-react';
+import { useState } from 'react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download } from 'lucide-react';
 import { Button } from './ui/button';
 import { CSVImporter } from './CSVImporter';
-import { DuckDBFileAttacher } from './DuckDBFileAttacher';
-import { DatabaseConnector } from './DatabaseConnector';
-import { S3Connector } from './S3Connector';
-import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
-import { ExtensionsPanel } from './ExtensionsPanel';
+import { Badge } from './ui/badge';
 import { Badge } from './ui/badge';
 import { isBackendMode, exportDuckDB } from '@/lib/duckdb';
 import { toast } from 'sonner';
