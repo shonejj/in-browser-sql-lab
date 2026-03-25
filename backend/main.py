@@ -19,10 +19,16 @@ import uuid
 import shutil
 import io
 import asyncio
+from pathlib import Path
 
 # ─── MinIO / boto3 ──────────────────────────────────────────────────────────
 import boto3
 from botocore.exceptions import ClientError
+
+# ─── File Upload Configuration ──────────────────────────────────────────────
+MAX_IMPORT_FILE_SIZE = int(os.environ.get("MAX_IMPORT_FILE_SIZE", 52428800))  # 50MB
+MAX_MINIO_FILE_SIZE = int(os.environ.get("MAX_MINIO_FILE_SIZE", 524288000))  # 500MB
+CHUNK_SIZE = 5 * 1024 * 1024  # 5MB chunks for streaming
 
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "")
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
@@ -97,6 +103,40 @@ def persist_to_minio():
         print("Persisted DuckDB to MinIO")
     except Exception as e:
         print(f"MinIO persist warning: {e}")
+
+
+# ─── Streaming File Upload Helper ──────────────────────────────────────────
+
+async def save_uploaded_file_streaming(file: UploadFile, temp_path: str, max_size: int) -> int:
+    """
+    Save uploaded file using streaming to avoid memory bloat.
+    Raises HTTPException if file exceeds max_size.
+    """
+    try:
+        bytes_written = 0
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            # Check size BEFORE writing
+            bytes_written += len(chunk)
+            if bytes_written > max_size:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File size exceeds {max_size / 1024 / 1024:.0f}MB limit. Maximum allowed: {max_size / 1024 / 1024:.0f}MB"
+                )
+            # Write after size check
+            with open(temp_path, 'ab') as f:
+                f.write(chunk)
+        return bytes_written
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise HTTPException(status_code=400, detail=f"Upload error: {str(e)}")
 
 
 # ─── Temporal (optional) ────────────────────────────────────────────────────
@@ -380,12 +420,17 @@ async def import_file(
     table_name: str = Form("imported_table"),
     overwrite: bool = Form(False),
 ):
+    """Import a file (CSV, Parquet, JSON, Excel, DuckDB) into a table."""
+    tmp_path = None
     try:
         suffix = os.path.splitext(file.filename or "file")[1].lower()
+        
+        # Create temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await file.read()
-            tmp.write(content)
             tmp_path = tmp.name
+        
+        # Stream file to disk instead of loading entire file into memory
+        await save_uploaded_file_streaming(file, tmp_path, MAX_IMPORT_FILE_SIZE)
 
         safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in table_name)
         if overwrite:
@@ -419,11 +464,16 @@ async def import_file(
             raise HTTPException(status_code=400, detail=f"Unsupported file format: {suffix}")
 
         count = con.execute(f'SELECT COUNT(*) FROM "{safe_name}"').fetchone()[0]
-        os.unlink(tmp_path)
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         return {"message": f"Imported {count} rows into {safe_name}", "table": safe_name, "rowCount": count}
     except HTTPException:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         raise
     except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -520,8 +570,20 @@ def import_from_s3(req: S3ImportRequest):
     try:
         safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in req.table_name)
         s3_path = f"s3://{req.bucket}/{req.key}"
+        
         if req.overwrite:
             con.execute(f'DROP TABLE IF EXISTS "{safe_name}"')
+        
+        # Auto-configure MinIO credentials if not already set and MinIO is available
+        if MINIO_ENDPOINT:
+            proto = "https" if MINIO_USE_SSL else "http"
+            con.execute(f"SET s3_endpoint='{MINIO_ENDPOINT}';")
+            con.execute(f"SET s3_access_key_id='{MINIO_ACCESS_KEY}';")
+            con.execute(f"SET s3_secret_access_key='{MINIO_SECRET_KEY}';")
+            con.execute(f"SET s3_region='us-east-1';")
+            con.execute(f"SET s3_url_style='path';")
+            con.execute(f"SET s3_use_ssl={'true' if MINIO_USE_SSL else 'false'};")
+        
         ext = os.path.splitext(req.key)[1].lower()
         if ext in (".csv", ".tsv"):
             con.execute(f"CREATE TABLE \"{safe_name}\" AS SELECT * FROM read_csv_auto('{s3_path}')")
@@ -543,6 +605,17 @@ def import_from_s3(req: S3ImportRequest):
 def export_to_s3(req: S3ExportRequest):
     try:
         s3_path = f"s3://{req.bucket}/{req.key}"
+        
+        # Auto-configure MinIO credentials if not already set and MinIO is available
+        if MINIO_ENDPOINT:
+            proto = "https" if MINIO_USE_SSL else "http"
+            con.execute(f"SET s3_endpoint='{MINIO_ENDPOINT}';")
+            con.execute(f"SET s3_access_key_id='{MINIO_ACCESS_KEY}';")
+            con.execute(f"SET s3_secret_access_key='{MINIO_SECRET_KEY}';")
+            con.execute(f"SET s3_region='us-east-1';")
+            con.execute(f"SET s3_url_style='path';")
+            con.execute(f"SET s3_use_ssl={'true' if MINIO_USE_SSL else 'false'};")
+        
         ext = os.path.splitext(req.key)[1].lower()
         if req.query:
             if ext == ".parquet":
@@ -710,16 +783,36 @@ async def files_upload(
     bucket: str = Form("duckdb-data"),
     key: str = Form(""),
 ):
+    """Upload a file to MinIO storage using streaming."""
+    tmp_path = None
     try:
         client = get_s3_client()
         if client is None:
             raise HTTPException(status_code=400, detail="No storage configured")
-        content = await file.read()
-        client.put_object(Bucket=bucket, Key=key, Body=content)
-        return {"message": f"Uploaded {key}"}
+        
+        # Create temp file for streaming
+        suffix = os.path.splitext(file.filename or "file")[1].lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+        
+        # Stream file to disk first
+        await save_uploaded_file_streaming(file, tmp_path, MAX_MINIO_FILE_SIZE)
+        
+        # Stream from disk to MinIO
+        with open(tmp_path, 'rb') as f:
+            client.upload_file(tmp_path, bucket, key)
+        
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        
+        return {"message": f"Uploaded {key}", "bucket": bucket, "key": key}
     except HTTPException:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         raise
     except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         raise HTTPException(status_code=400, detail=str(e))
 
 

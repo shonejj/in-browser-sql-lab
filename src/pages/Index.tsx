@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DatabaseSidebar } from '@/components/DatabaseSidebar';
 import { QueryCell } from '@/components/QueryCell';
 import { ColumnDiagnostics } from '@/components/ColumnDiagnostics';
@@ -10,9 +11,6 @@ import { DataToolbar } from '@/components/DataToolbar';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Footer } from '@/components/Footer';
 import { NotebookManagerEnhanced } from '@/components/NotebookManagerEnhanced';
-import { FileManager } from '@/components/FileManager';
-import { ConnectorsPanel } from '@/components/ConnectorsPanel';
-import { WorkflowBuilder } from '@/components/WorkflowBuilder';
 import { DatabaseConnector } from '@/components/DatabaseConnector';
 import { DuckDBFileAttacher } from '@/components/DuckDBFileAttacher';
 import { 
@@ -46,6 +44,7 @@ interface QueryCell {
 }
 
 const Index = () => {
+  const navigate = useNavigate();
   const [cells, setCells] = useState<QueryCell[]>([
     { id: '1', query: initialQuery, results: [], isExecuting: false }
   ]);
@@ -67,10 +66,7 @@ const Index = () => {
   const [backendUrlInput, setBackendUrlInput] = useState(getBackendUrl());
   const [currentMode, setCurrentMode] = useState<'wasm' | 'backend'>(isBackendMode() ? 'backend' : 'wasm');
 
-  // Feature dialogs
-  const [fileManagerOpen, setFileManagerOpen] = useState(false);
-  const [connectorsOpen, setConnectorsOpen] = useState(false);
-  const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  // Feature dialogs (File Manager, Connectors, Workflows are now full-page routes)
   const [attachDialogOpen, setAttachDialogOpen] = useState(false);
   const [attachFileDialogOpen, setAttachFileDialogOpen] = useState(false);
 
@@ -550,14 +546,14 @@ const Index = () => {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setFileManagerOpen(true)}>
+                  <DropdownMenuItem onClick={() => navigate('/files')}>
                     <FolderOpen className="w-3.5 h-3.5 mr-2" /> File Manager
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setConnectorsOpen(true)}>
+                  <DropdownMenuItem onClick={() => navigate('/connectors')}>
                     <Plug className="w-3.5 h-3.5 mr-2" /> Connectors
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setWorkflowsOpen(true)}>
+                  <DropdownMenuItem onClick={() => navigate('/workflows')}>
                     <GitBranch className="w-3.5 h-3.5 mr-2" /> Workflows
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -759,15 +755,6 @@ const Index = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* File Manager Dialog */}
-      <FileManager open={fileManagerOpen} onOpenChange={setFileManagerOpen} onImportComplete={refreshTables} />
-
-      {/* Connectors Panel */}
-      <ConnectorsPanel open={connectorsOpen} onOpenChange={setConnectorsOpen} onImportComplete={refreshTables} />
-
-      {/* Workflow Builder */}
-      <WorkflowBuilder open={workflowsOpen} onOpenChange={setWorkflowsOpen} />
 
       {/* Attach Database Dialog (Server mode) */}
       {attachDialogOpen && (

@@ -6,6 +6,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import { FileManagerPage } from "./pages/FileManagerPage";
+import { ConnectorsPage } from "./pages/ConnectorsPage";
+import { WorkflowsPage } from "./pages/WorkflowsPage";
 
 const queryClient = new QueryClient();
 
@@ -18,6 +21,9 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/files" element={<FileManagerPage />} />
+            <Route path="/connectors" element={<ConnectorsPage />} />
+            <Route path="/workflows" element={<WorkflowsPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
