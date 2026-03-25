@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { executeQuery } from '@/lib/duckdb';
+import { DataToolbar } from './DataToolbar';
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -104,8 +104,13 @@ export function DataToolbar({ columns, tableName, sourceQuery, onGenerateQuery }
 
     switch (activeDialog) {
       case 'compute': {
-        const right = computeUseConstant ? computeConstant : `"${computeCol2}"`;
-        query = `SELECT *, ("${computeCol1}" ${computeOp} ${right}) AS "${computeAlias}" FROM ${sourceTable};`;
+        const isConcat = computeOp === '||';
+        const wrapCol = (col: string) => isConcat ? `"${col}"` : `TRY_CAST("${col}" AS DOUBLE)`;
+        const right = computeUseConstant
+          ? (isConcat ? `'${computeConstant.replace(/'/g, "''")}'` : computeConstant)
+          : wrapCol(computeCol2);
+        const left = wrapCol(computeCol1);
+        query = `SELECT *, (${left} ${computeOp} ${right}) AS "${computeAlias}" FROM ${sourceTable};`;
         applyInPlace = true;
         break;
       }
