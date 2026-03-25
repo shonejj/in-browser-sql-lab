@@ -3,7 +3,6 @@ import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Cal
 import { Button } from './ui/button';
 import { CSVImporter } from './CSVImporter';
 import { Badge } from './ui/badge';
-import { Badge } from './ui/badge';
 import { isBackendMode, exportDuckDB } from '@/lib/duckdb';
 import { toast } from 'sonner';
 
