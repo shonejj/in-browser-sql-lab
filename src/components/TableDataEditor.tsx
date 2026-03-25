@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { executeQuery } from '@/lib/duckdb';
+import { DataToolbar } from './DataToolbar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -276,10 +277,34 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="max-w-[95vw] max-h-[95vh] flex flex-col p-0 [&>button:last-child]:hidden">
         <DialogHeader className="px-6 py-4 border-b">
-          <DialogTitle>Table Editor: {tableName}</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle>Table Editor: {tableName}</DialogTitle>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
         </DialogHeader>
 
         <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Data Tools */}
+          {columns.length > 0 && (
+            <div className="border-b">
+              <DataToolbar
+                columns={columns}
+                tableName={tableName}
+                onGenerateQuery={async (query, opts) => {
+                  try {
+                    await executeQuery(query);
+                    if (opts?.successMessage) toast.success(opts.successMessage);
+                    await loadTableData();
+                  } catch (err: any) {
+                    toast.error(`Operation failed: ${err.message}`);
+                  }
+                }}
+              />
+            </div>
+          )}
+
           {/* Toolbar */}
           <div className="flex items-center gap-2 p-2 border-b bg-muted/30">
             <Button size="sm" onClick={handleAddRow} variant="default">

@@ -1,12 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download, FolderOpen, Plug, GitBranch } from 'lucide-react';
+import { useState } from 'react';
+import { Database, Table2, ChevronRight, ChevronDown, Plus, Copy, BarChart3, Calendar, Hash, Type, Clock, RefreshCw, X, Info, Edit, Download } from 'lucide-react';
 import { Button } from './ui/button';
 import { CSVImporter } from './CSVImporter';
-import { DuckDBFileAttacher } from './DuckDBFileAttacher';
-import { DatabaseConnector } from './DatabaseConnector';
-import { S3Connector } from './S3Connector';
-import { NotebookManagerEnhanced } from './NotebookManagerEnhanced';
-import { ExtensionsPanel } from './ExtensionsPanel';
 import { Badge } from './ui/badge';
 import { isBackendMode, exportDuckDB } from '@/lib/duckdb';
 import { toast } from 'sonner';
@@ -165,7 +160,20 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                             <Edit className="w-3 h-3" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(table.name); toast.success(`Copied "${table.name}"`); }} title="Copy table name">
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => {
+                          e.stopPropagation();
+                          try {
+                            navigator.clipboard.writeText(table.name).then(() => toast.success(`Copied "${table.name}"`));
+                          } catch {
+                            const ta = document.createElement('textarea');
+                            ta.value = table.name;
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                            toast.success(`Copied "${table.name}"`);
+                          }
+                        }} title="Copy table name">
                           <Copy className="w-3 h-3" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { if (!onDeleteTable) return; const ok = confirm(`Delete table "${table.name}"?`); if (ok) onDeleteTable(table.name); }} title="Delete table">
@@ -196,11 +204,6 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
       <div className="p-2 border-t border-sidebar-border space-y-1">
         <div className="flex gap-1 flex-wrap">
           <CSVImporter onImport={onImportCSV} onImportComplete={onImportComplete} />
-          <DuckDBFileAttacher onAttach={onRefresh} />
-          <DatabaseConnector onImportComplete={onImportComplete} />
-          <S3Connector onImportComplete={onImportComplete} />
-          <ExtensionsPanel />
-          <NotebookManagerEnhanced onNotebookSelect={onNotebookSelect} />
           <Button variant="ghost" size="icon" className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent" onClick={handleDownloadDB} title="Download Database">
             <Download className="w-3.5 h-3.5" />
           </Button>

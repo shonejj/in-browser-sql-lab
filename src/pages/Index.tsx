@@ -490,9 +490,9 @@ const Index = () => {
           onImportComplete={refreshTables}
           onTableDetails={(tableName) => setDetailsTable(tableName)}
           onNotebookSelect={handleNotebookSelect}
-          onOpenFileManager={() => setFileManagerOpen(true)}
-          onOpenConnectors={() => setConnectorsOpen(true)}
-          onOpenWorkflows={() => setWorkflowsOpen(true)}
+          onOpenFileManager={() => navigate('/files')}
+          onOpenConnectors={() => navigate('/connectors')}
+          onOpenWorkflows={() => navigate('/workflows')}
           onAttachDatabase={handleAttachDatabase}
         />
       )}
