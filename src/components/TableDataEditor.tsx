@@ -285,6 +285,25 @@ export function TableDataEditor({ tableName, onClose }: TableDataEditorProps) {
         </DialogHeader>
 
         <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Data Tools */}
+          {columns.length > 0 && (
+            <div className="border-b">
+              <DataToolbar
+                columns={columns}
+                tableName={tableName}
+                onGenerateQuery={async (query, opts) => {
+                  try {
+                    await executeQuery(query);
+                    if (opts?.successMessage) toast.success(opts.successMessage);
+                    await loadTableData();
+                  } catch (err: any) {
+                    toast.error(`Operation failed: ${err.message}`);
+                  }
+                }}
+              />
+            </div>
+          )}
+
           {/* Toolbar */}
           <div className="flex items-center gap-2 p-2 border-b bg-muted/30">
             <Button size="sm" onClick={handleAddRow} variant="default">
