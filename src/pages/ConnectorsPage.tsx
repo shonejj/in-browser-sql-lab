@@ -2,14 +2,17 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { ScrollArea } from '../components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { getBackendUrl } from '@/lib/duckdb';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ThemeToggle } from '../components/ThemeToggle';
+import { Badge } from '../components/ui/badge';
 import {
   Plus, Trash2, TestTube, ArrowLeft, Database,
-  Cloud, CheckCircle
+  Cloud, CheckCircle, PanelLeftOpen, PanelLeftClose
 } from 'lucide-react';
 
 interface Connection {
@@ -54,6 +57,7 @@ export function ConnectorsPage() {
   const [showForm, setShowForm] = useState(false);
   const [testingName, setTestingName] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [formData, setFormData] = useState<FormData>({
     name: '', type: '', host: '', port: '', database_name: '', username: '', password: '',
     s3_endpoint: '', s3_access_key: '', s3_secret_key: '', s3_bucket: '', s3_region: 'us-east-1',
@@ -128,97 +132,150 @@ export function ConnectorsPage() {
   const getConnectionTypeIcon = (type: string) => CONNECTION_TYPES.find(ct => ct.value === type)?.icon || Database;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b bg-card/50 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={() => navigate('/')} className="p-2 hover:bg-muted rounded-lg transition">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
+    <div className="flex h-screen bg-background">
+      {/* Left Sidebar */}
+      {leftSidebarOpen && (
+        <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border overflow-hidden">
+          {/* Header */}
+          <div className="p-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-2 mb-2">
+              <Database className="w-5 h-5 text-sidebar-primary" />
+              <h1 className="font-semibold text-sm">DuckDB Lab</h1>
+              <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-auto">
+                Connectors
+              </Badge>
+            </div>
+            <div className="mt-1 pl-4 text-xs text-sidebar-foreground/80">
+              Manage database and cloud storage connections
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="p-4 border-b border-sidebar-border space-y-3">
+            <button 
+              onClick={() => navigate('/')} 
+              className="w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Editor
+            </button>
+          </div>
+
+          {/* Info Section */}
+          <ScrollArea className="flex-1">
+            <div className="p-4 space-y-4">
               <div>
-                <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                  <Cloud className="w-7 h-7 text-primary" />
-                  Connectors
-                </h1>
-                <p className="text-sm text-muted-foreground">Manage database and cloud storage connections</p>
+                <h3 className="text-xs font-semibold text-sidebar-foreground/60 mb-3 uppercase tracking-wider">Information</h3>
+                <div className="space-y-2 text-xs text-sidebar-foreground/70">
+                  <p>Add database or cloud storage connections to extend DuckDB functionality.</p>
+                  <p>Supported: MySQL, PostgreSQL, S3, DuckDB.</p>
+                </div>
               </div>
             </div>
-            <Button onClick={() => setShowForm(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              New Connection
-            </Button>
-          </div>
+          </ScrollArea>
         </div>
-      </div>
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin inline-block w-8 h-8 border-4 border-muted border-t-primary rounded-full"></div>
-            <p className="text-muted-foreground mt-4">Loading connections...</p>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Bar */}
+        <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-card">
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setLeftSidebarOpen(!leftSidebarOpen)} 
+              className="h-8 w-8"
+            >
+              {leftSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+            </Button>
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-primary" />
+              <span className="text-sm font-semibold">Connectors</span>
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {connections.map((conn) => {
-                const IconComponent = getConnectionTypeIcon(conn.type);
-                return (
-                  <Card key={conn.name} className="hover:border-primary/30 transition">
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <IconComponent className="w-5 h-5 text-primary" />
-                          <div>
-                            <CardTitle className="text-lg">{conn.name}</CardTitle>
-                            <p className="text-xs text-muted-foreground mt-1">{getConnectionTypeLabel(conn.type)}</p>
-                          </div>
-                        </div>
-                        <CheckCircle className="w-5 h-5 text-green-500" />
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2 text-sm mb-4">
-                        {conn.type === 's3' ? (
-                          <>
-                            {conn.s3_endpoint && <div className="flex items-start gap-2"><span className="text-muted-foreground">Endpoint:</span><span className="font-mono text-xs break-all">{conn.s3_endpoint}</span></div>}
-                            {conn.s3_bucket && <div className="flex items-center gap-2"><span className="text-muted-foreground">Bucket:</span><span>{conn.s3_bucket}</span></div>}
-                          </>
-                        ) : (
-                          <>
-                            {conn.host && <div className="flex items-center gap-2"><span className="text-muted-foreground">Host:</span><span>{conn.host}</span></div>}
-                            {conn.port && <div className="flex items-center gap-2"><span className="text-muted-foreground">Port:</span><span>{conn.port}</span></div>}
-                            {conn.database_name && <div className="flex items-center gap-2"><span className="text-muted-foreground">Database:</span><span>{conn.database_name}</span></div>}
-                          </>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={() => handleTest(conn.name)} disabled={testingName === conn.name} variant="outline" className="flex-1">
-                          <TestTube className="w-3 h-3 mr-1" /> Test
-                        </Button>
-                        <Button size="sm" onClick={() => setDeleteTarget(conn.name)} variant="outline" className="flex-1 border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
-                          <Trash2 className="w-3 h-3 mr-1" /> Delete
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+          <ThemeToggle />
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold">Manage Connections</h2>
+              <Button onClick={() => setShowForm(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                New Connection
+              </Button>
             </div>
 
-            {connections.length === 0 && !showForm && (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <Cloud className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">No connections configured yet</p>
-                  <Button onClick={() => setShowForm(true)}>
-                    <Plus className="w-4 h-4 mr-2" /> Create First Connection
-                  </Button>
-                </CardContent>
-              </Card>
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin inline-block w-8 h-8 border-4 border-muted border-t-primary rounded-full"></div>
+                <p className="text-muted-foreground mt-4">Loading connections...</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {connections.map((conn) => {
+                    const IconComponent = getConnectionTypeIcon(conn.type);
+                    return (
+                      <Card key={conn.name} className="hover:border-primary/30 transition">
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <IconComponent className="w-5 h-5 text-primary" />
+                              <div>
+                                <CardTitle className="text-lg">{conn.name}</CardTitle>
+                                <p className="text-xs text-muted-foreground mt-1">{getConnectionTypeLabel(conn.type)}</p>
+                              </div>
+                            </div>
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2 text-sm mb-4">
+                            {conn.type === 's3' ? (
+                              <>
+                                {conn.s3_endpoint && <div className="flex items-start gap-2"><span className="text-muted-foreground">Endpoint:</span><span className="font-mono text-xs break-all">{conn.s3_endpoint}</span></div>}
+                                {conn.s3_bucket && <div className="flex items-center gap-2"><span className="text-muted-foreground">Bucket:</span><span>{conn.s3_bucket}</span></div>}
+                              </>
+                            ) : (
+                              <>
+                                {conn.host && <div className="flex items-center gap-2"><span className="text-muted-foreground">Host:</span><span>{conn.host}</span></div>}
+                                {conn.port && <div className="flex items-center gap-2"><span className="text-muted-foreground">Port:</span><span>{conn.port}</span></div>}
+                                {conn.database_name && <div className="flex items-center gap-2"><span className="text-muted-foreground">Database:</span><span>{conn.database_name}</span></div>}
+                              </>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleTest(conn.name)} disabled={testingName === conn.name} variant="outline" className="flex-1">
+                              <TestTube className="w-3 h-3 mr-1" /> Test
+                            </Button>
+                            <Button size="sm" onClick={() => setDeleteTarget(conn.name)} variant="outline" className="flex-1 border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
+                              <Trash2 className="w-3 h-3 mr-1" /> Delete
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+
+                {connections.length === 0 && !showForm && (
+                  <Card>
+                    <CardContent className="text-center py-12">
+                      <Cloud className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground mb-4">No connections configured yet</p>
+                      <Button onClick={() => setShowForm(true)}>
+                        <Plus className="w-4 h-4 mr-2" /> Create First Connection
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
 
       {/* Connection Form Dialog */}

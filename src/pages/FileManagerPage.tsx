@@ -8,10 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { getBackendUrl } from '@/lib/duckdb';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ThemeToggle } from '../components/ThemeToggle';
+import { Badge } from '../components/ui/badge';
 import {
   FolderOpen, File, Upload, Trash2, FolderPlus,
   RefreshCw, Copy, Home, ArrowUp, Database,
-  ArrowLeft, Search
+  ArrowLeft, Search, PanelLeftOpen, PanelLeftClose
 } from 'lucide-react';
 
 interface FileItem {
@@ -35,6 +37,7 @@ export function FileManagerPage() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importingFile, setImportingFile] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
 
   const backendUrl = getBackendUrl();
 
@@ -140,56 +143,105 @@ export function FileManagerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b bg-card/50 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={() => navigate('/')} className="p-2 hover:bg-muted rounded-lg transition">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                  <FolderOpen className="w-7 h-7 text-primary" />
-                  File Manager
-                </h1>
-                <p className="text-sm text-muted-foreground">Manage files in MinIO S3 storage</p>
-              </div>
+    <div className="flex h-screen bg-background">
+      {/* Left Sidebar */}
+      {leftSidebarOpen && (
+        <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border overflow-hidden">
+          {/* Header */}
+          <div className="p-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-2 mb-2">
+              <Database className="w-5 h-5 text-sidebar-primary" />
+              <h1 className="font-semibold text-sm">DuckDB Lab</h1>
+              <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-auto">
+                File Manager
+              </Badge>
+            </div>
+            <div className="mt-1 pl-4 text-xs text-sidebar-foreground/80">
+              Manage files in MinIO S3 storage
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Left Sidebar */}
-          <div className="lg:col-span-1">
-            <Card>
-              <CardHeader><CardTitle>Buckets</CardTitle></CardHeader>
-              <CardContent>
+          {/* Navigation */}
+          <div className="p-4 border-b border-sidebar-border space-y-3">
+            <button 
+              onClick={() => navigate('/')} 
+              className="w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Editor
+            </button>
+          </div>
+
+          {/* Buckets Section */}
+          <ScrollArea className="flex-1">
+            <div className="p-4 space-y-4">
+              <div>
+                <h3 className="text-xs font-semibold text-sidebar-foreground/60 mb-3 uppercase tracking-wider">Buckets</h3>
                 <div className="space-y-2">
-                  <button onClick={() => { setBucket('duckdb-data'); setCurrentPath(''); }}
-                    className={`w-full px-4 py-2 rounded-lg text-left transition ${bucket === 'duckdb-data' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}>
-                    <Database className="w-4 h-4 inline mr-2" /> duckdb-data
+                  <button 
+                    onClick={() => { setBucket('duckdb-data'); setCurrentPath(''); }}
+                    className={`w-full px-3 py-2 rounded-md text-sm transition flex items-center gap-2 ${
+                      bucket === 'duckdb-data' 
+                        ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
+                        : 'text-sidebar-foreground hover:bg-sidebar-accent'
+                    }`}
+                  >
+                    <Database className="w-4 h-4" />
+                    duckdb-data
                   </button>
                 </div>
-                <div className="mt-6 pt-6 border-t">
-                  <p className="text-xs text-muted-foreground uppercase font-semibold mb-3">Navigation</p>
-                  <button onClick={() => navigateTo('')} className="w-full px-4 py-2 rounded-lg text-left hover:bg-muted transition flex items-center gap-2">
-                    <Home className="w-4 h-4" /> Root
+              </div>
+
+              <div className="pt-4 border-t border-sidebar-border">
+                <h3 className="text-xs font-semibold text-sidebar-foreground/60 mb-3 uppercase tracking-wider">Navigation</h3>
+                <div className="space-y-2">
+                  <button 
+                    onClick={() => navigateTo('')} 
+                    className="w-full px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition flex items-center gap-2"
+                  >
+                    <Home className="w-4 h-4" />
+                    Root
                   </button>
                   {currentPath && (
-                    <button onClick={navigateUp} className="w-full px-4 py-2 rounded-lg text-left hover:bg-muted transition flex items-center gap-2">
-                      <ArrowUp className="w-4 h-4" /> Up
+                    <button 
+                      onClick={navigateUp} 
+                      className="w-full px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition flex items-center gap-2"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                      Up
                     </button>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </div>
+          </ScrollArea>
+        </div>
+      )}
 
-          {/* Main Content */}
-          <div className="lg:col-span-3">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Bar */}
+        <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-card">
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setLeftSidebarOpen(!leftSidebarOpen)} 
+              className="h-8 w-8"
+            >
+              {leftSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+            </Button>
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-primary" />
+              <span className="text-sm font-semibold">File Manager</span>
+            </div>
+          </div>
+          <ThemeToggle />
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between flex-wrap gap-4">

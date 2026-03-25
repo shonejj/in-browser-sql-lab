@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { ScrollArea } from '../components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { getBackendUrl } from '@/lib/duckdb';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { Plus, Trash2, Play, Edit2, ArrowLeft, Zap, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { ThemeToggle } from '../components/ThemeToggle';
+import { Badge } from '../components/ui/badge';
+import { Plus, Trash2, Play, Edit2, ArrowLeft, Zap, Clock, CheckCircle, AlertCircle, Database, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 
 interface Workflow {
   id: string;
@@ -33,6 +36,7 @@ export function WorkflowsPage() {
   const [showForm, setShowForm] = useState(false);
   const [executingId, setExecutingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [formData, setFormData] = useState<FormData>({ name: '', schedule: '0 0 * * *', steps: [], enabled: true });
 
   useEffect(() => { loadWorkflows(); }, []);
@@ -107,95 +111,150 @@ export function WorkflowsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b bg-card/50 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={() => navigate('/')} className="p-2 hover:bg-muted rounded-lg transition">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
+    <div className="flex h-screen bg-background">
+      {/* Left Sidebar */}
+      {leftSidebarOpen && (
+        <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border overflow-hidden">
+          {/* Header */}
+          <div className="p-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-2 mb-2">
+              <Database className="w-5 h-5 text-sidebar-primary" />
+              <h1 className="font-semibold text-sm">DuckDB Lab</h1>
+              <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-auto">
+                Workflows
+              </Badge>
+            </div>
+            <div className="mt-1 pl-4 text-xs text-sidebar-foreground/80">
+              Schedule and manage automated tasks
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="p-4 border-b border-sidebar-border space-y-3">
+            <button 
+              onClick={() => navigate('/')} 
+              className="w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Editor
+            </button>
+          </div>
+
+          {/* Info Section */}
+          <ScrollArea className="flex-1">
+            <div className="p-4 space-y-4">
               <div>
-                <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                  <Zap className="w-7 h-7 text-amber-500" /> Workflows
-                </h1>
-                <p className="text-sm text-muted-foreground">Schedule and manage automated tasks</p>
+                <h3 className="text-xs font-semibold text-sidebar-foreground/60 mb-3 uppercase tracking-wider">Information</h3>
+                <div className="space-y-2 text-xs text-sidebar-foreground/70">
+                  <p>Create and manage automated workflows to schedule recurring tasks.</p>
+                  <p>Use cron expressions to define schedules.</p>
+                </div>
               </div>
             </div>
-            <Button onClick={() => setShowForm(true)}>
-              <Plus className="w-4 h-4 mr-2" /> New Workflow
-            </Button>
-          </div>
+          </ScrollArea>
         </div>
-      </div>
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin inline-block w-8 h-8 border-4 border-muted border-t-primary rounded-full"></div>
-            <p className="text-muted-foreground mt-4">Loading workflows...</p>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Bar */}
+        <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-card">
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setLeftSidebarOpen(!leftSidebarOpen)} 
+              className="h-8 w-8"
+            >
+              {leftSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+            </Button>
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-semibold">Workflows</span>
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {workflows.map((workflow) => (
-                <Card key={workflow.id} className="hover:border-primary/30 transition">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="text-lg">{workflow.name}</CardTitle>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Clock className="w-4 h-4 text-muted-foreground" />
-                          <p className="text-xs text-muted-foreground">{getCronDescription(workflow.schedule || '0 0 * * *')}</p>
-                        </div>
-                      </div>
-                      {workflow.enabled ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="bg-muted rounded-lg p-3 mb-4">
-                      <p className="text-xs text-muted-foreground mb-2">Steps: {workflow.steps?.length || 0}</p>
-                      {workflow.steps && workflow.steps.length > 0 && (
-                        <div className="space-y-1">
-                          {workflow.steps.slice(0, 2).map((step: any, idx: number) => (
-                            <div key={idx} className="text-xs flex items-start gap-2">
-                              <span className="text-muted-foreground">→</span>
-                              <span>{step.name || step.type || `Step ${idx + 1}`}</span>
-                            </div>
-                          ))}
-                          {workflow.steps.length > 2 && <div className="text-xs text-muted-foreground">+{workflow.steps.length - 2} more</div>}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={() => handleExecute(workflow.id)} disabled={executingId === workflow.id} className="flex-1">
-                        <Play className="w-3 h-3 mr-1" /> Run
-                      </Button>
-                      <Button size="sm" onClick={() => handleEdit(workflow)} variant="outline" className="flex-1">
-                        <Edit2 className="w-3 h-3 mr-1" /> Edit
-                      </Button>
-                      <Button size="sm" onClick={() => setDeleteTarget(workflow.id)} variant="outline" className="border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+          <ThemeToggle />
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold">Manage Workflows</h2>
+              <Button onClick={() => setShowForm(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                New Workflow
+              </Button>
             </div>
 
-            {workflows.length === 0 && !showForm && (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <Zap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">No workflows created yet</p>
-                  <Button onClick={() => setShowForm(true)}>
-                    <Plus className="w-4 h-4 mr-2" /> Create First Workflow
-                  </Button>
-                </CardContent>
-              </Card>
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin inline-block w-8 h-8 border-4 border-muted border-t-primary rounded-full"></div>
+                <p className="text-muted-foreground mt-4">Loading workflows...</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {workflows.map((workflow) => (
+                    <Card key={workflow.id} className="hover:border-primary/30 transition">
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <CardTitle className="text-lg">{workflow.name}</CardTitle>
+                            <div className="flex items-center gap-2 mt-2">
+                              <Clock className="w-4 h-4 text-muted-foreground" />
+                              <p className="text-xs text-muted-foreground">{getCronDescription(workflow.schedule || '0 0 * * *')}</p>
+                            </div>
+                          </div>
+                          {workflow.enabled ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="bg-muted rounded-lg p-3 mb-4">
+                          <p className="text-xs text-muted-foreground mb-2">Steps: {workflow.steps?.length || 0}</p>
+                          {workflow.steps && workflow.steps.length > 0 && (
+                            <div className="space-y-1">
+                              {workflow.steps.slice(0, 2).map((step: any, idx: number) => (
+                                <div key={idx} className="text-xs flex items-start gap-2">
+                                  <span className="text-muted-foreground">→</span>
+                                  <span>{step.name || step.type || `Step ${idx + 1}`}</span>
+                                </div>
+                              ))}
+                              {workflow.steps.length > 2 && <div className="text-xs text-muted-foreground">+{workflow.steps.length - 2} more</div>}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => handleExecute(workflow.id)} disabled={executingId === workflow.id} className="flex-1">
+                            <Play className="w-3 h-3 mr-1" /> Run
+                          </Button>
+                          <Button size="sm" onClick={() => handleEdit(workflow)} variant="outline" className="flex-1">
+                            <Edit2 className="w-3 h-3 mr-1" /> Edit
+                          </Button>
+                          <Button size="sm" onClick={() => setDeleteTarget(workflow.id)} variant="outline" className="border-destructive/50 hover:bg-destructive/10 hover:text-destructive">
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {workflows.length === 0 && !showForm && (
+                  <Card>
+                    <CardContent className="text-center py-12">
+                      <Zap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground mb-4">No workflows created yet</p>
+                      <Button onClick={() => setShowForm(true)}>
+                        <Plus className="w-4 h-4 mr-2" /> Create First Workflow
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
 
       {/* Workflow Form Dialog */}
