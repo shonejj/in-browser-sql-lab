@@ -165,7 +165,20 @@ export function DatabaseSidebar({ tables, onTableClick, onImportCSV, onRefresh, 
                             <Edit className="w-3 h-3" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(table.name); toast.success(`Copied "${table.name}"`); }} title="Copy table name">
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => {
+                          e.stopPropagation();
+                          try {
+                            navigator.clipboard.writeText(table.name).then(() => toast.success(`Copied "${table.name}"`));
+                          } catch {
+                            const ta = document.createElement('textarea');
+                            ta.value = table.name;
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                            toast.success(`Copied "${table.name}"`);
+                          }
+                        }} title="Copy table name">
                           <Copy className="w-3 h-3" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { if (!onDeleteTable) return; const ok = confirm(`Delete table "${table.name}"?`); if (ok) onDeleteTable(table.name); }} title="Delete table">
